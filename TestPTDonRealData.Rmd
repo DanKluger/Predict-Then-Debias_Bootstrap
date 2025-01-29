@@ -1,0 +1,208 @@
+---
+title: "Untitled"
+author: "Dan Kluger"
+date: "10/21/2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+```{r}
+RandomSubsetFixedSize <- function(FormattedDatInp,mTarget,clusterSample=F){
+  
+  FormattedDatSubset <- list()
+
+  if(clusterSample){
+    uniqueClusters <- unique(FormattedDatInp$ClusterIDs)
+    NClusters <- length(uniqueClusters)
+    ExpectedNClustSubsamp <- NClusters* mTarget/nrow(FormattedDatInp$GoodDat)
+    rem <- ExpectedNClustSubsamp-floor(ExpectedNClustSubsamp)
+    NClustSubsamp <- floor(ExpectedNClustSubsamp)+ sample(c(0,1),size = 1,prob = c(1-rem,rem))
+    ClusterIDsSubsamp <- sample(uniqueClusters,size = NClustSubsamp,replace = F)
+    idxSubsample <- which(FormattedDatInp$ClusterIDs %in% ClusterIDsSubsamp)
+  } else{
+    MSuper <- nrow(FormattedDatInp$GoodDat)
+    idxSubsample <- sample(1:MSuper,size = mTarget,replace = F) #If you sample with replacement simulations should have more precise coverage
+  }
+  
+  FormattedDatSubset$GoodDat <- FormattedDatInp$GoodDat[idxSubsample,]
+  FormattedDatSubset$ProxyDat <- FormattedDatInp$ProxyDat[idxSubsample,]
+  
+  
+  
+    if(!is.null(FormattedDatInp$PiLabelUnsc)){FormattedDatSubset$PiLabelUnsc <- FormattedDatInp$PiLabelUnsc[idxSubsample]} 
+    else{ FormattedDatSubset$PiLabelUnsc <- NULL}
+   if(!is.null(FormattedDatInp$ClusterIDs)){FormattedDatSubset$ClusterIDs <- FormattedDatInp$ClusterIDs[idxSubsample]} 
+  else{ FormattedDatSubset$ClusterIDs <- NULL}
+
+  return(FormattedDatSubset)
+}
+```
+
+
+```{r}
+LabelRandomSubset <- function(GoodDatInp,ProxyDatInp,piLabelInpUsnc=NULL,nLabelTarget){
+  if(is.null(piLabelInpUsnc)){
+      piLabelRescaled <- rep(nLabelTarget/nrow(GoodDatInp),nrow(GoodDatInp))
+  } else {
+      piLabelRescaled <- nLabelTarget*piLabelInpUsnc/sum(piLabelInpUsnc)
+  }
+  Idx2Label <- I(runif(n = nrow(GoodDatInp)) < piLabelRescaled)
+  GoodDatWMissing <- GoodDatInp
+  GoodDatWMissing[!Idx2Label,] <- NA
+  return(list(GoodDatWMissing=GoodDatWMissing,piLabelRescaled=piLabelRescaled))
+}
+```
+
+```{r}
+LabelRandomSubsetofClusters <- function(GoodDatInp,ProxyDatInp,piLabelInpUsnc=NULL,clustersInp,nLabelTarget){
+  
+  if(is.null(piLabelInpUsnc)){
+      uniqueClusterIDs <- unique(clustersInp)
+      piClusterRescaled <- rep(nLabelTarget/nrow(GoodDatInp),length(uniqueClusterIDs))
+      piLabelRescaled <- rep(nLabelTarget/nrow(GoodDatInp),nrow(GoodDatInp))
+  } else {
+     clusterInp2 <- clustersInp
+      piClusterDf <- data.frame(piLabelInpUsnc,clusterInp2) %>% group_by(clusterInp2) %>% summarise(piCluster=mean(piLabelInpUsnc),ClusterSize=n())
+      piClusterRescaled <- nLabelTarget*piClusterDf$piCluster/sum(piClusterDf$piCluster*piClusterDf$ClusterSize)
+      piLabelRescaled <- nLabelTarget*piLabelInpUsnc/sum(piLabelInpUsnc)
+      uniqueClusterIDs <- piClusterDf[['clusterInp2']]
+  }
+  
+  
+  Clusters2Label <- I(runif(n = length(uniqueClusterIDs)) < piClusterRescaled)
+  Idx2Label <- rep(NA,nrow(GoodDatInp))
+  for(i in 1:length(uniqueClusterIDs)){
+    Idx2Label[clustersInp==uniqueClusterIDs[i]] <- Clusters2Label[i]
+  }
+  GoodDatWMissing <- GoodDatInp
+  GoodDatWMissing[!Idx2Label,] <- NA
+  return(list(GoodDatWMissing=GoodDatWMissing,piLabelRescaled=piLabelRescaled))
+}
+```
+
+
+
+```{r}
+source("PTDBootModularized.R")
+source("BootstrapAndCalcEsts.glm.R")
+source("EstBetaGammaCalib_andVCOV.glm.R")
+source("FormatAndFitReg.R")
+```
+
+```{r}
+runSimsRealData <- function(FormattedDatInp2,mTargInp,nLabelTargInp,nSims=100,regTypeInp="linear",outcomeVarName="Y",BootstrapSchemesInp=c("FullBootPercentile","QuickConvolution","CLTBased"),tuningSchemesInp=c("Optimal","Diagonal","None"),alphaInp=0.1,clusteredLabelling=F,useClusterIDs=F,tauForQuantileReg=NULL){
+
+  
+  SimResultList <- list()
+  currTime <- proc.time()[3]
+  startTime <- currTime
+  for(i in 1:nSims){
+    if(i %% 10==1){ 
+      print(paste0("Starting Simulation ",i," out of ",nSims))
+      print(paste0("Minutes elapsed since last message: ",(proc.time()[3]-currTime)/60))
+      currTime <- proc.time()[3]
+    }
+    FormattedDatSubsamp <- RandomSubsetFixedSize(FormattedDatInp = FormattedDatInp2,mTarget = mTargInp,clusterSample = clusteredLabelling)
+    
+    if(clusteredLabelling){
+      CurrLabelling <- LabelRandomSubsetofClusters(GoodDatInp = FormattedDatSubsamp$GoodDat,
+                                       ProxyDatInp = FormattedDatSubsamp$ProxyDat,
+                                       piLabelInpUsnc = FormattedDatSubsamp$PiLabelUnsc,
+                                       clustersInp = FormattedDatSubsamp$ClusterIDs,
+                                       nLabelTarget = nLabelTargInp)
+    }else{
+      CurrLabelling <- LabelRandomSubset(GoodDatInp = FormattedDatSubsamp$GoodDat,
+                                       ProxyDatInp = FormattedDatSubsamp$ProxyDat,
+                                       piLabelInpUsnc = FormattedDatSubsamp$PiLabelUnsc,
+                                       nLabelTarget = nLabelTargInp)
+    }
+    
+  if(useClusterIDs){
+    ClustersUse <- FormattedDatSubsamp$ClusterIDs
+  } else{
+    ClustersUse <- NULL
+  }
+
+    suppressWarnings(SimResultList[[i]] <- PTDBootModularized(ProxyDat = FormattedDatSubsamp$ProxyDat,GoodDat = CurrLabelling$GoodDatWMissing,PiLabel = CurrLabelling$piLabelRescaled,clusterID=ClustersUse ,BootstrapScheme=BootstrapSchemesInp,nBootInference = 2000,nBootTune = 0,TuningScheme = tuningSchemesInp,RegType = regTypeInp,OutcomeVarName = outcomeVarName,alpha = alphaInp,tauQuantReg = tauForQuantileReg)) 
+    
+  }
+  totalTime <- (proc.time()[3]-startTime)/60
+  return(list(SimResultList=SimResultList,mTargInp=mTargInp,nLabelTargInp=nLabelTargInp,RegTypeUsed=regTypeInp,alphaUsed=alphaInp,tauForQuantileRegUsed=tauForQuantileReg,totalTime=totalTime)) 
+}
+```
+
+
+```{r}
+SimsResultPath <- paste0(getwd(),"/SimulationResults/")
+
+```
+
+Experiment #1
+```{r}
+load(paste0(getwd(),"/Datasets/","AlphaFoldFormatted.RData"))
+
+AlphaFoldSims <- runSimsRealData(FormattedDatInp = AlphaFoldFormatted,nSims = 500,mTargInp = 7500,nLabelTargInp = 1000,regTypeInp = "logistic",outcomeVarName = "IDR",BootstrapSchemesInp = c("FullBootPercentile","QuickConvolution","CLTBased"))
+
+save(AlphaFoldSims,file = paste0(SimsResultPath,"AlphaFoldSims.RData"))
+```
+
+
+Experiment #2
+```{r}
+load(paste0(currDir,"/Datasets/","HousingPriceFormatted.RData"))
+
+HousingPriceSims <- runSimsRealData(FormattedDatInp = HousingPriceFormatted,nSims = 500,mTargInp = 5000,nLabelTargInp = 500,regTypeInp = "linear",outcomeVarName = "HousingPrice",BootstrapSchemesInp = c("FullBootPercentile","QuickConvolution","CLTBased"))
+
+save(HousingPriceSims,file = paste0(SimsResultPath,"HousingPriceSims.RData"))
+```
+
+
+Experiment #3
+```{r}
+load(paste0(getwd(),"/Datasets/","HousingPriceFormatted.RData"))
+
+HousingPriceSimsQuantileRegMedian <- runSimsRealData(FormattedDatInp = HousingPriceFormatted,nSims = 500,mTargInp = 5000,nLabelTargInp = 1000,regTypeInp = "Quantile Regression",outcomeVarName = "HousingPrice",BootstrapSchemesInp = c("QuickConvolution","FullBootPercentile"),tauForQuantileReg = 0.5)
+
+save(HousingPriceSimsQuantileRegMedian,file = paste0(SimsResultPath,"HousingPriceSimsQuantileRegMedian.RData"))
+
+```
+
+Experiment #4
+```{r}
+load(paste0(getwd(),"/Datasets/","TreecoverFormatted.RData"))
+
+TreecoverSims <- runSimsRealData(FormattedDatInp = TreecoverFormatted,nSims = 500,mTargInp = 5000,nLabelTargInp = 500,regTypeInp = "linear",outcomeVarName = "Treecover",BootstrapSchemesInp = c("FullBootPercentile","QuickConvolution","CLTBased"))
+
+save(TreecoverSims,file = paste0(SimsResultPath,"TreecoverSims.RData"))
+```
+
+Experiment #5
+```{r}
+#Clustered sampling and labelling
+load(paste0(getwd(),"/Datasets/","TreecoverFormatted.RData"))
+
+
+TreeCoverClusteredSimsAddressClustering <- runSimsRealData(FormattedDatInp = TreecoverFormatted,nSims = 500,mTargInp = 10000,nLabelTargInp = 1000,regTypeInp = "linear",outcomeVarName = "Treecover",clusteredLabelling = T,useClusterIDs = T,BootstrapSchemesInp = c("QuickConvolution","FullBootPercentile"))
+
+save(TreeCoverClusteredSimsAddressClustering,file = paste0(SimsResultPath,"TreecoverSimsWithClustering.RData"))
+```
+
+Experiment #6
+```{r}
+load(paste0(getwd(),"/Datasets/","TreecoverBinarizedFormatted.RData"))
+
+TreecoverBinarizedSims <- runSimsRealData(FormattedDatInp = TreecoverBinarizedFormatted,nSims = 500,mTargInp = 8000,nLabelTargInp = 1000,regTypeInp = "logistic",outcomeVarName = "Forest",BootstrapSchemesInp = c("FullBootPercentile","QuickConvolution","CLTBased"))
+
+save(TreecoverBinarizedSims,file = paste0(SimsResultPath,"TreecoverBinarizedSims.RData"))
+```
+
+
+
+
+
