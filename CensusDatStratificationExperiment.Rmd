@@ -74,6 +74,7 @@ FormattedCensus2019 <- FormattedCensus[FormattedCensus$Year==2019,] %>% mutate(Y
 
 Predicting Disability
 ```{r}
+set.seed(8)
 library(ranger)
 
 rf2018FitDisability <- ranger(DIS~.,data = FormattedCensus2018,num.trees = 500)
@@ -114,6 +115,10 @@ IncomeDatFormatted <- list(GoodDat=GoodDat,ProxyDat=ProxyDat,StrataIDs=StrataIDs
 save(IncomeDatFormatted,file = paste0(getwd(),"/Datasets/CensusStratIncomeFormatted.RData"))
 ```
 
+```{r}
+#clearing all variables used in formatting data
+rm(list = ls())
+```
 
 
 
@@ -260,6 +265,7 @@ runStratifiedSampleBootIncomeExample <- function(StratifiedSampleDat,nBoot=2000,
 
 
 ```{r}
+set.seed(7)
 load(paste0(getwd(),"/Datasets/CensusStratIncomeFormatted.RData"))
 
 
