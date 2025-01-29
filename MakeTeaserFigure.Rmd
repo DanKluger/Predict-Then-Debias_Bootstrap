@@ -1,0 +1,118 @@
+---
+title: "Untitled"
+author: "Dan Kluger"
+date: "12/19/2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+Make teaser figure
+
+
+```{r}
+library(sandwich)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+```
+
+
+```{r}
+RandomSubsetThenLabelFixedSizesUniformSampling <- function(FormattedDatInp,mTarget,nLabelTarget,SampleWR=T){
+  
+    FormattedDatSubset <- list()
+    MSuper <- nrow(FormattedDatInp$GoodDat)
+    idxSubsample <- sample(1:MSuper,size = mTarget,replace = SampleWR) 
+    
+    FormattedDatSubset$GoodDat <- FormattedDatInp$GoodDat[idxSubsample,]
+    FormattedDatSubset$ProxyDat <- FormattedDatInp$ProxyDat[idxSubsample,]
+  
+  
+    Idx2Label <- sample(1:nrow(FormattedDatSubset$GoodDat),size = nLabelTarget,replace = F)
+    GoodDatWMissing <- FormattedDatSubset$GoodDat
+    GoodDatWMissing[-Idx2Label,] <- NA
+    
+     FormattedDatSubset$GoodDatWMissing  <- GoodDatWMissing
+  
+    FormattedDatSubset$PiLabelUnsc <- rep(nLabelTarget/mTarget,mTarget)
+
+  return(FormattedDatSubset)
+}
+```
+
+
+
+
+
+```{r}
+load(paste0(getwd(),"/Datasets/","HousingPriceFormatted.RData"))
+
+source("PTDBootModularized.R")
+source("BootstrapAndCalcEsts.glm.R")
+source("EstBetaGammaCalib_andVCOV.glm.R")
+source("FormatAndFitReg.R")
+```
+
+```{r}
+runSimsRealDataSimplified <- function(FormattedDatInp2,mInp,nLabelTargInp,nSims=100,regTypeInp="linear",outcomeVarName="Y",BootstrapSchemesInp=c("CLTBased"),tuningSchemesInp=c("Optimal"),alphaInp=0.1,betaTrack="X",SampleWRInp=T){
+
+  
+  PointEsts <- matrix(NA,nrow=nSims,ncol = 3)
+colnames(PointEsts) <- c("Classical","Naive","PTD")
+  
+  currTime <- proc.time()[3]
+  for(i in 1:nSims){
+    if(i %% 250==1){ 
+      print(paste0("Starting Simulation ",i," out of ",nSims))
+      print(paste0("Minutes elapsed since last message: ",(proc.time()[3]-currTime)/60))
+      currTime <- proc.time()[3]
+    }
+   
+    
+    CurrSamp <- RandomSubsetThenLabelFixedSizesUniformSampling(FormattedDatInp = FormattedDatInp2,mTarget = mInp,nLabelTarget = nLabelTargInp,SampleWR = SampleWRInp)
+   
+      
+    
+
+    SimResultCurr <- PTDBootModularized(ProxyDat = CurrSamp$ProxyDat,GoodDat = CurrSamp$GoodDatWMissing ,BootstrapScheme=BootstrapSchemesInp,PiLabel = CurrSamp$PiLabelUnsc ,TuningScheme = tuningSchemesInp,RegType = regTypeInp,OutcomeVarName = outcomeVarName,alpha = alphaInp)
+    PointEsts[i,'Classical'] <- SimResultCurr$CIList$classical[betaTrack,'Estimate']
+    PointEsts[i,'PTD'] <- SimResultCurr$CIList$CLTBased_Optimal[betaTrack,'Estimate']
+    PointEsts[i,'Naive'] <- SimResultCurr$CIList$naive[betaTrack,'Estimate']
+  }
+  return(PointEsts) 
+}
+```
+
+
+```{r}
+SimsNightlightCoef <- runSimsRealDataSimplified(nSims = 10000,FormattedDatInp = HousingPriceFormatted,mInp = 40000,nLabelTargInp = 1500,regTypeInp = "linear",outcomeVarName = "HousingPrice",betaTrack="Nightlights")
+
+save(SimsNightlightCoef,file = "TeaserFigSims.RData")
+```
+
+```{r}
+load(paste0(getwd(),"/Datasets/","HousingPriceFormatted.RData"))
+
+load("TeaserFigSims.RData")
+pltdf <- data.frame(SimsNightlightCoef) %>% pivot_longer(cols = c("Classical","Naive","PTD"),names_to="Approach",values_to="beta_nightlight") 
+pltdf$Approach[pltdf$Approach=="PTD"] <- "PTD (Optimally tuned)"
+
+
+TrueBeta <- lm(formula = HousingPrice ~ Income+Nightlights+RoadLength,data = HousingPriceFormatted$GoodDat)$coefficients
+
+plot(1,1)
+pltout <- ggplot(data = pltdf,mapping = aes(x = beta_nightlight,fill=Approach))+geom_histogram(position  = "identity",alpha=0.5,bins=60)+theme_bw()+xlab("Estimated nightlight regression coefficient")+theme(panel.grid.minor = element_blank(),panel.grid.major = element_blank())+geom_segment(x = TrueBeta['Nightlights'],xend=TrueBeta['Nightlights'],y=0,yend=Inf,linetype="dashed",size=0.2)+
+  annotate("text", x = 0.102, y = 2000, label = "True coefficient",size=3)+ylab("Count")+ theme(aspect.ratio=0.3)
+
+ggsave(filename = paste0(getwd(),"/Figures/TeaserFig.pdf"),
+  plot = pltout,height = 2
+)
+
+```
+
+
+
