@@ -1,0 +1,164 @@
+---
+title: "Untitled"
+author: "Dan Kluger"
+date: "10/17/2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Alpha Fold Data
+
+```{r}
+library(reticulate)
+np <- import("numpy")
+
+npz1 <- np$load(paste0(getwd(),"/FromPPIZenodo/alphafold.npz"))
+npz1$files
+
+#Maybe can do Y ~ phosphorylated +ubiquitinated+acetylated+ubiquitinated*acetylated
+dfAlphaFold <- data.frame(npz1$f[["Y"]],as.numeric(I(npz1$f[["Yhat"]]>0.5)),npz1$f[["phosphorylated"]],npz1$f[["ubiquitinated"]],npz1$f[["acetylated"]])
+names(dfAlphaFold) <-  c("IDR","IDR_pred","phosphorylated","ubiquitinated","acetylated")
+
+#The datset a bit unbalanced for checking interaction in regression of IDR on ubiquitination and acetylation
+table(dfAlphaFold$ubiquitinated,dfAlphaFold$acetylated)
+
+#Setting labelling weights to ensure a balanced subsample
+
+AlphaFoldPiLabelUnscaled <- rep(NA,nrow(dfAlphaFold))
+for(i in c(0,1)){
+  for(j in c(0,1)){
+    idxCurr <- (dfAlphaFold$ubiquitinated==i) & (dfAlphaFold$acetylated==j)
+    AlphaFoldPiLabelUnscaled[idxCurr] <- 0.25/sum(idxCurr)
+  }
+}
+
+#Formatting the data for simulation experiments
+
+AlphaFoldGoodDatAll <- data.frame(dfAlphaFold$IDR,dfAlphaFold$ubiquitinated,dfAlphaFold$acetylated,dfAlphaFold$ubiquitinated*dfAlphaFold$acetylated)
+AlphaFoldProxyDat <- data.frame(dfAlphaFold$IDR_pred,dfAlphaFold$ubiquitinated,dfAlphaFold$acetylated,dfAlphaFold$ubiquitinated*dfAlphaFold$acetylated)
+names(AlphaFoldGoodDatAll) <- c("IDR","ubiquitinated","acetylated","ubiq:acet_interaction")
+names(AlphaFoldProxyDat) <- c("IDR","ubiquitinated","acetylated","ubiq:acet_interaction")
+
+AlphaFoldFormatted <- list(GoodDat=AlphaFoldGoodDatAll,ProxyDat=AlphaFoldProxyDat,PiLabelUnsc=AlphaFoldPiLabelUnscaled)
+save(AlphaFoldFormatted,file = "AlphaFoldFormatted.RData")
+```
+
+
+
+Rolf et al. (2021) Data
+
+```{r}
+library(reticulate)
+pd <- import("pandas")
+library(dplyr)
+library(tidyr)
+
+MosaiksFolder <- paste0(getwd(),"/FromMOSAIKS")
+
+
+QuantityNames <- c("elevation","housing price","income","nightlights","population","road length","treecover")
+QuantityFileName <- c("elevation_meters_CONTUS_16_640_UAR","housing_log_price_per_sqft_CONTUS_16_640_POP"
+                      ,"income_income_CONTUS_16_640_POP","nightlights_log_nightlights_CONTUS_16_640_POP",
+                      "population_log_population_CONTUS_16_640_UAR","roads_length_CONTUS_16_640_POP",
+                      "treecover_treecover_CONTUS_16_640_UAR")
+
+
+#Checking whether lon lats the same
+for(i in 1:length(QuantityNames)){
+  File1Path <- paste0(MosaiksFolder,"/outcomes_scatter_obsAndPred_",QuantityFileName[i],"_100000_0_random_features_3_0.data")
+  File2Path <- paste0(MosaiksFolder,"/outcomes_testset_obsAndPred_",QuantityFileName[i],"_100000_0_random_features_3_0.data")
+
+  Dat1 <- pd$read_pickle(File1Path)
+  Dat1$best_lambda <- NULL
+  Dat1 <- data.frame(Dat1) %>% mutate(quantity=QuantityNames[i],source="scatter")
+  Dat2 <- data.frame(pd$read_pickle(File2Path)) %>% mutate(quantity=QuantityNames[i],source="test")
+  if(i ==1){
+    DatComb <- rbind(Dat1,Dat2)
+  } else {
+    DatComb <- rbind(DatComb,Dat1,Dat2)
+  }
+}
+```
+
+
+Formatting housing price data
+```{r}
+DatCombWideGroup1 <- DatComb %>% filter(quantity %in% c("housing price","income","nightlights","road length")) %>% pivot_wider(id_cols = c("lon","lat"),names_from=c("quantity"),values_from=c("truth","preds","source"))
+
+
+Df1 <- DatCombWideGroup1 %>% filter(complete.cases(DatCombWideGroup1))
+
+HousingPriceGoodDat <- data.frame(Df1$`truth_housing price`,Df1$truth_income,Df1$truth_nightlights,Df1$`truth_road length`)
+names(HousingPriceGoodDat) <- c("HousingPrice","Income","Nightlights","RoadLength")
+HousingPriceProxyDat<- HousingPriceGoodDat
+#Assuming error in road length and nightlight variables but income and housing price data available #on full sample
+HousingPriceProxyDat$RoadLength <- Df1$`preds_road length`
+HousingPriceProxyDat$Nightlights <- Df1$preds_nightlights
+
+
+HousingPriceFormatted <- list(GoodDat=HousingPriceGoodDat,ProxyDat=HousingPriceProxyDat,PiLabelUnsc=NULL,ClusterIDs=NULL)
+
+save(HousingPriceFormatted,file = "HousingPriceFormatted.RData")
+```
+
+
+
+
+Extracting cluster information and formatting treecover data
+
+```{r}
+#Function that bins into square lat/lon grid cells 
+getGridCellClusters <- function(DfInp,gridCellsize=1){
+  lonSeq <- seq(min(DfInp$lon)-0.0001*gridCellsize,max(DfInp$lon)+gridCellsize,by = gridCellsize)
+  latSeq <- seq(min(DfInp$lat)-0.0001*gridCellsize,max(DfInp$lat)+gridCellsize,by = gridCellsize)
+  binCurr <- 0
+  ClusterID <- rep(NA,nrow(DfInp))
+  for(i in 1:(length(lonSeq)-1)){
+    for(j in 1:(length(latSeq)-1)){
+      binCurr <- binCurr+1
+      idxCurrBin <- (DfInp$lon >= lonSeq[i]) & (DfInp$lon < lonSeq[i+1]) & (DfInp$lat >= latSeq[j]) & (DfInp$lat < latSeq[j+1])
+    ClusterID[idxCurrBin] <- binCurr
+  }
+}
+
+  print(paste0("Samples not assigned a cluster: ",sum(is.na(ClusterID))))
+  print(sort(table(ClusterID),decreasing = T))
+
+  return(ClusterID)
+}
+
+```
+
+```{r}
+
+DatCombWideGroup2 <- DatComb %>% filter(quantity %in% c("elevation","population","treecover")) %>% pivot_wider(id_cols = c("lon","lat"),names_from=c("quantity"),values_from=c("truth","preds","source"))
+
+Df2 <- DatCombWideGroup2 %>% filter(complete.cases(DatCombWideGroup2))
+
+
+TreecoverGoodDat <- data.frame(Df2$truth_treecover,Df2$truth_elevation,Df2$truth_population)
+names(TreecoverGoodDat) <- c("Treecover","Elevation","Population")
+TreecoverProxyDat<- TreecoverGoodDat
+#Assuming error in treecover and population but elevation data available on full sample
+TreecoverProxyDat$Treecover <- Df2$preds_treecover
+TreecoverProxyDat$Population <- Df2$preds_population
+
+
+ClusterIdGrid <- getGridCellClusters(DfInp = Df2,gridCellsize = 0.5)
+```
+
+```{r}
+TreecoverFormatted <- list(GoodDat=TreecoverGoodDat,ProxyDat=TreecoverProxyDat,PiLabelUnsc=NULL,ClusterIDs=ClusterIdGrid)
+save(TreecoverFormatted,file = "TreecoverFormatted.RData")
+
+#Binarized version >10% considered fored https://research.fs.usda.gov/programs/fia/forestdefinitions
+TreecoverBinarizedFormatted <-  list(GoodDat=TreecoverGoodDat %>% mutate(Forest=I(Treecover>10)) %>% mutate(Treecover=NULL) ,ProxyDat=TreecoverProxyDat %>% mutate(Forest=I(Treecover>10)) %>% mutate(Treecover=NULL) ,PiLabelUnsc=NULL)
+save(TreecoverBinarizedFormatted,file = "TreecoverBinarizedFormatted.RData")
+```
+
+Note that census data formatting was done in an RMarkdown file titled: CensusDatStratificationExperiment.Rmd
+
+
