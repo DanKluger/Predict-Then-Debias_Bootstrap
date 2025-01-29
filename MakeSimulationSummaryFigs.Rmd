@@ -1,0 +1,406 @@
+---
+title: "Untitled"
+author: "Dan Kluger"
+date: "12/24/2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+#Loading and formatting simulations
+SimsPath <- paste0(getwd(),"/SimulationResults/")
+load(paste0(SimsPath,"AlphaFoldSims.RData"))
+load(paste0(SimsPath,"HousingPriceSims.RData"))
+load(paste0(SimsPath,"HousingPriceSimsQuantileRegMedian.RData"))
+load(paste0(SimsPath,"TreecoverSims.RData"))
+load(paste0(SimsPath,"TreecoverSimsWithClustering.RData"))
+load(paste0(SimsPath,"TreecoverBinarizedSims.RData"))
+load(paste0(SimsPath,"CensusIncomeStratifiedSims.RData"))
+
+
+ExperimentResultsAll <- list()
+ExperimentResultsAll[[1]] <- AlphaFoldSims$SimResultList
+ExperimentResultsAll[[2]] <- HousingPriceSims$SimResultList
+ExperimentResultsAll[[3]] <- HousingPriceSimsQuantileRegMedian$SimResultList
+ExperimentResultsAll[[4]] <- TreecoverSims$SimResultList
+ExperimentResultsAll[[5]] <- TreeCoverClusteredSimsAddressClustering$SimResultList
+ExperimentResultsAll[[6]] <- TreecoverBinarizedSims$SimResultList
+ExperimentResultsAll[[7]] <- SimResultsIncomeStratified$SimResultList
+
+#Setting coefficient names
+CoefsNameMats <-  list()
+CoefsNameMats[[1]]  <- cbind(c("(Intercept)","ubiquitinated","acetylated","`ubiq:acet_interaction`"),
+                      c("Intercept","Ubiquitinated","Acetylated","Interaction"))
+CoefsNameMats[[2]]  <- cbind(c("(Intercept)","Income","Nightlights","RoadLength"),
+                      c("Intercept","Income","Nightlights","Road Length"))
+CoefsNameMats[[3]]  <- CoefsNameMats[[2]]
+
+CoefsNameMats[[4]]  <- cbind(c("(Intercept)","Elevation","Population"),
+                      c("Intercept","Elevation","Population"))
+CoefsNameMats[[5]]  <- CoefsNameMats[[4]]
+CoefsNameMats[[6]]  <- CoefsNameMats[[4]]
+CoefsNameMats[[7]]  <- cbind(c("(Intercept)","Age","Disability"),
+                      c("Intercept","Age","Disability"))
+
+rm(AlphaFoldSims,HousingPriceSims,HousingPriceSimsQuantileRegMedian,TreecoverSims,TreeCoverClusteredSimsAddressClustering,TreecoverBinarizedSims,SimResultsIncomeStratified)
+```
+
+```{r}
+#Calculating true beta and gamma
+TrueBetaList <- list()
+TrueGammaList <- list()
+
+#Alpha Fold Example
+load(paste0(getwd(),"/Datasets/","AlphaFoldFormatted.RData"))
+TrueBetaList[[1]]  <-  glm(formula = IDR ~ .,data = AlphaFoldFormatted$GoodDat, family =  binomial(link = "logit"))$coefficients
+TrueGammaList[[1]] <- glm(formula = IDR ~ .,data = AlphaFoldFormatted$ProxyDat,family =  binomial(link = "logit"))$coefficients
+
+#Housing Price Examples
+load(paste0(getwd(),"/Datasets/","HousingPriceFormatted.RData"))
+
+TrueBetaList[[2]] <- lm(formula = HousingPrice ~ .,data = HousingPriceFormatted$GoodDat)$coefficients
+TrueGammaList[[2]] <- lm(formula = HousingPrice ~ .,data = HousingPriceFormatted$ProxyDat)$coefficients
+
+library(quantreg)
+TrueBetaList[[3]] <- rq(formula = HousingPrice ~ .,data = HousingPriceFormatted$GoodDat,tau = 0.5)$coefficients
+TrueGammaList[[3]] <- rq(formula = HousingPrice ~ .,data = HousingPriceFormatted$ProxyDat,tau = 0.5)$coefficients
+
+#Treecover examples
+
+load(paste0(getwd(),"/Datasets/","TreecoverFormatted.RData"))
+
+TrueBetaList[[4]] <- lm(formula = Treecover ~ .,data = TreecoverFormatted$GoodDat)$coefficients
+TrueGammaList[[4]] <- lm(formula = Treecover ~ .,data = TreecoverFormatted$ProxyDat)$coefficients
+
+TrueBetaList[[5]] <- TrueBetaList[[4]] 
+TrueGammaList[[5]] <- TrueGammaList[[4]] 
+load(paste0(getwd(),"/Datasets/","TreecoverBinarizedFormatted.RData"))
+
+TrueBetaList[[6]] <- glm(formula = Forest ~ .,family = "binomial",data = TreecoverBinarizedFormatted$GoodDat)$coefficients
+TrueGammaList[[6]] <- glm(formula = Forest ~ .,family = "binomial",data = TreecoverBinarizedFormatted$ProxyDat)$coefficients
+
+
+#Census example
+
+load(paste0(getwd(),"/Datasets/CensusStratIncomeFormatted.RData"))
+
+TrueBetaList[[7]] <- lm(formula = Income ~ .,data = IncomeDatFormatted$GoodDat)$coefficients
+TrueGammaList[[7]] <- lm(formula = Income ~ .,data = IncomeDatFormatted$ProxyDat)$coefficients
+
+rm(AlphaFoldFormatted,HousingPriceFormatted,TreecoverFormatted,TreecoverBinarizedFormatted,IncomeDatFormatted)
+```
+
+
+```{r}
+ExtractSummaryTable1Exp <- function(SimResultsInp,CoefNamesInp,ExperimentNum,MethodNameMat,TrueBeta,TrueGamma){
+
+   MethodNameVec <-  MethodNameMat[,1] 
+  MethodNameFormatted <- MethodNameMat[,2] 
+  df1TuneMethodList <- list()
+  for(methId in 1:length(MethodNameVec)){
+    nCoeff <- nrow(CoefNamesInp)
+    CIWidthsTabCurr <- matrix(NA,ncol = length(SimResultsInp),nrow = nCoeff)
+    CoversMat <- matrix(NA,ncol = length(SimResultsInp),nrow = nCoeff)
+
+    for(j in 1:length(SimResultsInp)){
+      CIsCurrSim <- SimResultsInp[[j]]$CIList[[MethodNameVec[methId]]]
+      if((sum(rownames(CIsCurrSim) != CoefNamesInp[,1])==0) | (sum(rownames(CIsCurrSim)  != names(TrueBeta))==0) ){
+      CIWidthsTabCurr[,j] <- CIsCurrSim[,'CI_ub']-CIsCurrSim[,'CI_lb']
+      CoversMat[,j] <- I((TrueBeta<CIsCurrSim[,'CI_ub']) & (TrueBeta > CIsCurrSim[,'CI_lb']))
+      } else{print("Warning:Coefficient name misalignment")}
+    }
+    
+    CIWidths_mean <- rowMeans(CIWidthsTabCurr)
+    CIWidths_sd <- rep(NA,nCoeff)
+    for(i in 1:nCoeff){CIWidths_sd[i] <- sd(CIWidthsTabCurr[i,])}
+    EmpCoverage <- rowMeans(CoversMat)
+    
+    dfOutCurr <- data.frame(rep(ExperimentNum,nCoeff),CoefNamesInp[,2],rep(MethodNameFormatted[methId],nCoeff),
+                            CIWidths_mean,CIWidths_sd,EmpCoverage,TrueBeta,TrueGamma)
+    names(dfOutCurr) <- c("Experiment","Coefficient","Method","CIWidths_mean","CIWidths_sd","Coverage","TrueBeta","TrueGamma")
+    df1TuneMethodList[[methId]] <- dfOutCurr
+  }
+  dfOut <- df1TuneMethodList[[1]]
+  for(methId in 2:length(MethodNameVec)){dfOut <- rbind(dfOut,df1TuneMethodList[[methId]])}
+  return(dfOut)
+}
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+nomarlizeAndrelevelSummaryTable <- function(SummaryTabInp,coefNameMatInp){
+#Normalize the summary table by dividing by average
+  AvgClassicalWidthDf <- SummaryTabInp %>% filter(Method=="Classical") %>% mutate(Method=NULL,CIWidths_sd=NULL,Coverage=NULL,TrueBeta=NULL,TrueGamma=NULL)
+  CISummaryTabNormalized <- left_join(SummaryTabInp,AvgClassicalWidthDf,by=c("Experiment","Coefficient"),suffix=c("","_classical")) %>% mutate(CIWidths_mean_norm=CIWidths_mean/CIWidths_mean_classical,CIWidths_sd_norm=CIWidths_sd/CIWidths_mean_classical)
+  
+  #Format coefficient name order factor for plots
+  CISummaryTabNormalized$CoefName <- paste0(CISummaryTabNormalized$Coefficient," (",CISummaryTabNormalized$Experiment,")")
+
+
+
+  levelOrderVec <- vector()
+  for(i in 1:length(coefNameMatInp)){
+    for(j in 1:nrow(coefNameMatInp[[i]])){
+      coefNameCurr <- coefNameMatInp[[i]][j,2]
+      coefNameCurrFull <- paste0(coefNameCurr," (",i,")")
+      levelOrderVec <- c(coefNameCurrFull,levelOrderVec)
+    }
+  }
+
+  #Checking that no coefficients were missing in releveling
+  mean(CISummaryTabNormalized$CoefName %in% levelOrderVec)
+  mean(levelOrderVec %in% CISummaryTabNormalized$CoefName)
+
+
+  CISummaryTabNormalized$CoefNameFactor <- factor(CISummaryTabNormalized$CoefName,levels = levelOrderVec)
+  return(CISummaryTabNormalized)
+
+}
+```
+
+
+
+Table with various tuning method approaches
+
+```{r}
+CIVaryTuningMatrixTabList <- list()
+for(i in 1:7){
+  if(i < 7){
+    MethodNameMatInp <- cbind(c(paste0("FullBootPercentile_",c("Optimal","Diagonal","None")),"classical"),
+                               c("PTD (Optimal Tuning)","PTD (Optimal Diagonal Tuning)","PTD (No Tuning)","Classical"))
+  }else{
+    MethodNameMatInp <- cbind(c(paste0("FullBootPercentile_",c("ExactBoot","OptDiag","None")),"classical"),
+                               c("PTD (Optimal Tuning)","PTD (Optimal Diagonal Tuning)","PTD (No Tuning)","Classical"))
+  }
+  CIVaryTuningMatrixTabList[[i]] <- ExtractSummaryTable1Exp(SimResultsInp = ExperimentResultsAll[[i]],CoefNamesInp = CoefsNameMats[[i]],ExperimentNum = i,MethodNameMat = MethodNameMatInp,TrueBeta = TrueBetaList[[i]],TrueGamma = TrueGammaList[[i]])
+}
+
+CIVaryTuningMatrixTab <- CIVaryTuningMatrixTabList[[1]]
+for(i in 2:length(CIVaryTuningMatrixTabList)){CIVaryTuningMatrixTab <- rbind(CIVaryTuningMatrixTab,CIVaryTuningMatrixTabList[[i]])}
+
+CIVaryTuningMatrixTabNormalized <- nomarlizeAndrelevelSummaryTable(SummaryTabInp = CIVaryTuningMatrixTab,coefNameMatInp = CoefsNameMats)
+```
+
+Table with various CI construction approaches
+
+
+```{r}
+VaryCIMethodTabList <- list()
+for(i in 1:7){
+  if(i < 7){
+    
+    MethodNameMatInp <- cbind(c(paste0(c("FullBootPercentile","QuickConvolution","CLTBased"),"_Diagonal"),"classical"),
+                               c("PTD (Full Bootstrap)","PTD (Convolution Bootstrap)","PTD (CLT Based)","Classical"))
+    if(sum(names(ExperimentResultsAll[[i]][[1]]$CIList)=="CLTBased_Diagonal" )==0){
+      MethodNameMatInp <- MethodNameMatInp[-which(MethodNameMatInp[,1]=="CLTBased_Diagonal"),]
+    }
+  }else{
+      MethodNameMatInp <- cbind(c("FullBootPercentile_OptDiag","classical"),
+                               c("PTD (Full Bootstrap)","Classical"))
+  }
+  VaryCIMethodTabList[[i]] <- ExtractSummaryTable1Exp(SimResultsInp = ExperimentResultsAll[[i]],CoefNamesInp = CoefsNameMats[[i]],ExperimentNum = i,MethodNameMat = MethodNameMatInp,TrueBeta = TrueBetaList[[i]],TrueGamma = TrueGammaList[[i]])
+}
+
+VaryCIMethodTab <- VaryCIMethodTabList[[1]]
+for(i in 2:length(VaryCIMethodTabList)){VaryCIMethodTab <- rbind(VaryCIMethodTab,VaryCIMethodTabList[[i]])}
+
+VaryCIMethodTabNormalized <- nomarlizeAndrelevelSummaryTable(SummaryTabInp = VaryCIMethodTab,coefNameMatInp = CoefsNameMats)
+```
+
+
+
+```{r}
+#plot results
+library(ggplot2)
+library(ggpubr)
+pointShapeManual <- scale_shape_manual(values = c(16,15,17,23))
+
+WidthPanel1 <- ggplot(data = VaryCIMethodTabNormalized,mapping = aes(x=CIWidths_mean_norm,y = CoefNameFactor,col=Method,shape=Method,fill=Method))+facet_grid("Experiment",scales = "free_y",space = "free_y")+geom_point(position=position_dodge(0.75),size=1)+theme_bw()+geom_errorbar(aes(xmin=CIWidths_mean_norm-CIWidths_sd_norm,xmax=CIWidths_mean_norm+CIWidths_sd_norm),width=.6,position=position_dodge(0.75),alpha=1)+theme(legend.position = "top",strip.text.y = element_blank(),axis.text.y = element_text(size=8),panel.grid.major.x = element_blank(),panel.grid.minor = element_blank(),legend.text = element_text(size=8))+ylab("Coefficient")+xlab("Normalized Confidence Interval Width")+labs(colour="Method")+pointShapeManual
+
+CoveragePanel1 <- ggplot(data = VaryCIMethodTabNormalized,mapping = aes(x=Coverage,y = CoefNameFactor,col=Method,shape=Method,fill=Method))+facet_grid("Experiment",scales = "free_y",space = "free_y")+geom_point(position=position_dodge(0.75),size=1)+theme_bw()+theme(legend.position = "top",strip.text.y = element_blank(),axis.text.y =element_blank(),panel.grid.major.x = element_blank(),panel.grid.minor = element_blank(),legend.text = element_text(size=8))+ylab("")+xlab("Empirical Coverage")+labs(colour="Method")+geom_vline(xintercept = 0.9,linetype="dashed")+xlim(c(0,1))+pointShapeManual
+Plt1 <- ggarrange(WidthPanel1,CoveragePanel1,ncol=2,common.legend = T,widths = c(2,1))
+
+
+WidthPanel2 <-ggplot(data = CIVaryTuningMatrixTabNormalized,mapping = aes(x=CIWidths_mean_norm,y = CoefNameFactor,col=Method,shape=Method,fill=Method))+facet_grid("Experiment",scales = "free_y",space = "free_y")+geom_point(position=position_dodge(0.75),size=1)+theme_bw()+geom_errorbar(aes(xmin=CIWidths_mean_norm-CIWidths_sd_norm,xmax=CIWidths_mean_norm+CIWidths_sd_norm),width=.6,position=position_dodge(0.75),alpha=1)+theme(legend.position = "top",strip.text.y = element_blank(),axis.text.y = element_text(size=8),panel.grid.major.x = element_blank(),panel.grid.minor = element_blank(),legend.text = element_text(size=8))+ylab("Coefficient")+xlab("Normalized Confidence Interval Width")+labs(colour="Method")+pointShapeManual
+
+CoveragePanel2 <- ggplot(data = CIVaryTuningMatrixTabNormalized,mapping = aes(x=Coverage,y = CoefNameFactor,col=Method,fill=Method,shape=Method))+facet_grid("Experiment",scales = "free_y",space = "free_y")+geom_point(position=position_dodge(0.75),size=1)+theme_bw()+theme(legend.position = "top",strip.text.y = element_blank(),axis.text.y =element_blank(),panel.grid.major.x = element_blank(),panel.grid.minor = element_blank(),legend.text = element_text(size=8))+ylab("")+xlab("Empirical Coverage")+labs(colour="Method")+geom_vline(xintercept = 0.9,linetype="dashed")+xlim(c(0,1))+pointShapeManual
+
+Plt2 <- ggarrange(WidthPanel2,CoveragePanel2,ncol=2,common.legend = T,widths = c(2,1))
+
+ggsave(
+   paste0(getwd(),"/Figures/ExpsVaryCIMethod.pdf"),
+  plot = Plt1,height = 5
+)
+
+ggsave(
+   paste0(getwd(),"/Figures/ExpsVaryTuningMatrix.pdf"),
+  plot = Plt2,height = 5
+)
+```
+
+
+```{r}
+SimResultFormatterVersion2 <- function(SimsInp,MethodInp,betaTrue,gammaTrue,ExperimentName){
+   nBeta <- length(betaTrue)
+  
+  for(i in 1:length(SimsInp)){
+    for(j in 1:nrow(MethodInp)){
+      
+      currMethod <- MethodInp[j,1]
+      currEsts <- SimsInp[[i]]$CIList[[currMethod]]
+      
+      if((sum(rownames(currEsts)!=names(betaTrue))>0)|(sum(rownames(currEsts)!=names(gammaTrue))>0)){
+        print("WARNING: COEF ORDEring issue")}
+      Coverage <- I( (currEsts[,"CI_lb"] < betaTrue) & (currEsts[,"CI_ub"] > betaTrue))
+      DfAdd <- data.frame(currEsts[,'Estimate'],currEsts[,"CI_ub"]-currEsts[,"CI_lb"],
+                          Coverage,rep(MethodInp[j,2],nBeta),rownames(currEsts),rep(ExperimentName,nBeta),betaTrue,gammaTrue)
+
+      names(DfAdd) <- c("Estimate","CI Width","Covers","Method","Coefficient","Experiment","betaTrue","gammaTrue")
+      if((i==1) & (j==1)){
+        DfOut <- DfAdd
+      } else {
+        DfOut <- rbind(DfOut,DfAdd)
+      }
+    }
+  }
+   return(DfOut)
+}
+```
+
+
+```{r}
+relevelSimTable <- function(SimTableInp,coefNameMatInp,methodNameMatInp2,expNumber){
+#Normalize the summary table by dividing by average
+
+  SimTablePlt <- SimTableInp
+  #Format coefficient name order factor for plots
+  
+  SimTablePlt$CoefNameNew <- rep(NA,nrow(SimTableInp))
+  for(j in 1:nrow(coefNameMatInp)){
+    SimTablePlt$CoefNameNew[SimTableInp$Coefficient==coefNameMatInp[j,1]] <- paste0(coefNameMatInp[j,2])#," (",expNumber,")")
+  }
+  
+  
+
+
+  levelOrderVec <- vector()
+    for(j in 1:nrow(coefNameMatInp)){
+      coefNameCurr <- coefNameMatInp[j,2]
+      coefNameCurrFull <- paste0(coefNameCurr)#," (",expNumber,")")
+      levelOrderVec <- c(levelOrderVec,coefNameCurrFull)
+    }
+  
+  
+  MethodLevelOrderVec <- vector()
+    for(j in 1:nrow(methodNameMatInp2)){
+      MethodCurr <- methodNameMatInp2[j,2]
+      MethodLevelOrderVec <- c(MethodLevelOrderVec,MethodCurr)
+  }
+
+  #Checking that no coefficients were missing in releveling
+  print(mean(SimTablePlt$CoefNameNew %in% levelOrderVec))
+  print(mean(levelOrderVec %in% SimTablePlt$CoefNameNew))
+
+
+  SimTablePlt$CoefNameFactor <- factor(SimTablePlt$CoefNameNew,levels = levelOrderVec)
+  SimTablePlt$MethodFactor <- factor(SimTablePlt$Method,levels = MethodLevelOrderVec)
+
+  return(SimTablePlt)
+
+}
+```
+ 
+
+```{r}
+ library(dplyr)
+library(ggplot2)
+library(ggpubr)
+PltDataSimsResults2 <- function(SimsTable,CoefNamesInp,ExpCurr,sideMargin=0.05){
+  
+  TrueBetaDf <- SimsTable %>% group_by(CoefNameFactor) %>% summarise(TrueBeta=mean(betaTrue))
+  NaiveBetaDf <- SimsTable %>% group_by(CoefNameFactor) %>% summarise(ProxyBasedEst=mean(gammaTrue))
+
+  
+  
+
+AdditionalPltFormat <- theme_bw()+theme(axis.text.x = element_text(size = 6),axis.title.x=element_blank(),axis.text.y = element_blank(),axis.title.y=element_blank(),panel.grid.minor = element_blank(),panel.grid.major = element_blank())#,axis.title.y = element_text(angle=0))
+
+#old color scheme c("#999999", "#008a00")
+#newer color scheme c("#FFFFFF", "#008a00")
+  pltEstimates <- ggplot(data = SimsTable ,aes(y=MethodFactor,x=Estimate,fill=Method))+geom_violin(position = "dodge")+scale_fill_manual(values=c("#FFFFFF", "#008a00"))+geom_vline(aes(xintercept=TrueBeta),data =TrueBetaDf,col="blue")+geom_vline(aes(xintercept=ProxyBasedEst),data =NaiveBetaDf,col="red",linetype="dashed")+facet_wrap( ~CoefNameFactor, nrow = 1, scales = "free_x")+AdditionalPltFormat+theme(strip.text = element_text(size = 7))  +theme(
+        strip.text = element_text(
+            margin = margin(t = 0.7, r = 0, b = 0.7, l = 0, unit = "pt")))+theme(legend.position="right")+theme(plot.margin =unit(c(0.2,sideMargin,0,sideMargin),"cm"))
+  
+  pltCIwidthds <- ggplot(data = SimsTable ,aes(y=MethodFactor,x=`CI Width`,fill=Method))+geom_violin(position = "dodge")+scale_fill_manual(values=c("#FFFFFF", "#008a00"))+facet_wrap( ~CoefNameFactor, nrow = 1, scales = "free_x")+AdditionalPltFormat+theme(strip.text.x = element_blank())+theme(legend.position="bottom")+theme(plot.margin =unit(c(0.03,sideMargin,0.4,sideMargin),"cm"))
+
+  
+  CIWidthLegend <- get_legend(pltCIwidthds)
+  EstimatesLegend <- get_legend(pltEstimates)
+
+  
+  pltAll <- ggarrange(pltEstimates,pltCIwidthds,nrow = 2,ncol = 1,heights = c(1.3,1),labels = c("",""),font.label = list(size=7,face="plain"),vjust = 0.5,legend = "none")
+
+
+  
+  return(list(pltAll=pltAll,CIWidthLegend=CIWidthLegend,EstimatesLegend=EstimatesLegend))
+}
+```
+
+
+
+```{r}
+CurrExpTableRelevel <- list()
+for(i in 1:7){
+  if(i < 7){
+    MethodNameMatInp <-  cbind(c("FullBootPercentile_Diagonal","classical"),
+                               c("Predict-Then-Debias","Classical"))
+  }else{
+    MethodNameMatInp <-  cbind(c("FullBootPercentile_OptDiag","classical"),
+                               c("Predict-Then-Debias","Classical"))
+
+  }
+  
+  
+  CurrExpTable <- SimResultFormatterVersion2(SimsInp = ExperimentResultsAll[[i]],MethodInp = MethodNameMatInp,betaTrue = TrueBetaList[[i]],gammaTrue = TrueGammaList[[i]],ExperimentName = i)
+
+  CurrExpTableRelevel[[i]] <- relevelSimTable(SimTableInp = CurrExpTable,coefNameMatInp = CoefsNameMats[[i]],methodNameMatInp2 = MethodNameMatInp,expNumber = i)
+}
+```
+
+Make Figure 2 (Violin plots)
+```{r}
+pltList <- list()
+for(i in 1:7){
+  pltList[[i]] <-  PltDataSimsResults2(SimsTable = CurrExpTableRelevel[[i]],CoefNamesInp = CoefsNameMats[[i]],ExpCurr = i)$pltAll
+}
+LegList <- PltDataSimsResults2(SimsTable = CurrExpTableRelevel[[i]],CoefNamesInp = CoefsNameMats[[i]],ExpCurr = i)
+print(LegList$CIWidthLegend)
+
+lineLegendNames <- c("  Naive Estimate    ","  True Coefficient   ")
+DfForLeged <- data.frame(1:10,1:10,rep(lineLegendNames,each=5))
+names(DfForLeged) <- c("X","Y","EstimateName")
+DfForLeged$EstimateName <- factor(DfForLeged$EstimateName,levels = lineLegendNames[c(2,1)])
+LinePlotForLegend <- ggplot(data = DfForLeged,mapping = aes(x = X,y = Y,col=EstimateName,linetype=EstimateName))+geom_line()+theme_bw()+ scale_color_manual(values=c("blue", "red"))+theme(legend.title = element_blank())
+
+CombLegends <- ggarrange(get_legend(LinePlotForLegend),geom_blank(),LegList$EstimatesLegend,geom_blank(),nrow = 4)
+
+
+pltExps1to3NoLegend <-  ggarrange(geom_blank(),pltList[[1]],pltList[[2]],pltList[[3]],nrow = 4,labels = c("","AlphaFold with Weighted Sampling (#1)","Housing Price Linear Regression (#2)","Housing Price Quantile Regression (#3)"),heights = c(0.2,1,1,1),font.label = list(size=8.5,face="plain"),vjust = 0.4,hjust=0)
+pltExps4to7NoLegend <-  ggarrange(pltList[[4]],pltList[[5]],pltList[[6]],pltList[[7]],nrow = 4,labels = c("Treecover Linear Regression (#4)","Treecover with Clustered Sampling (#5)","Treecover Logistic Regression (#6)","Census with Stratified Sampling (#7)"),font.label = list(size=8.5,face="plain"),vjust = 0.4,hjust=0)
+pltExps4to7Legend   <-  ggarrange(pltExps4to7NoLegend,CombLegends,widths = c(3,1))
+
+pltExps1to7 <- ggarrange(pltExps1to3NoLegend,pltExps4to7Legend,nrow = 2,heights = c(3.2,4))
+
+ggsave(
+   paste0(getwd(),"/Figures/Exps1to7.pdf"),
+  plot = pltExps1to7,height = 8
+)
+```
+
+
+

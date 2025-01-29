@@ -1,0 +1,287 @@
+---
+title: "Untitled"
+author: "Dan Kluger"
+date: "12/23/2024"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+```
+
+
+```{r}
+getwd()
+Census2018Dat <- read.csv(paste0(getwd(),"/Datasets/CensusData/CA_census_data_2018.csv"))
+Census2019Dat <- read.csv(paste0(getwd(),"/Datasets/CensusData/CA_census_data_2019.csv"))
+
+
+
+names(Census2018Dat)
+
+#https://arxiv.org/pdf/2108.04884
+#SCHL is educational attainment
+#MAR is marital status
+#CIT is citezenship
+#RAC1P is race
+#MIG (Mobility status: whether they moved within the past year)
+#AGEP Age (if greater than 16)
+#ESP (employment status of parents if living with parents)
+#DIS with versus without a disability (Could be a good one to predict)
+#COW is type of employer (Could be a good choice for stratification)
+#MIL military service
+# DEAR hear difficulties
+# DEYE is vision difficulties
+# DREM is cognitive difficulties
+#ANC is some type of ancestary not sure
+#Nativity (native versus foreign born)
+
+```
+
+
+```{r}
+#Turn everything but age and income into categorical variables. NAs gets its own category
+#Drop SOCP and Ancsestry
+FormatCensus <- function(DfInp){
+   DfOut <- DfInp
+  VarNamesOg <- names(DfInp)
+  for(j in 1:length(VarNamesOg)){
+    curVar <- VarNamesOg[j]
+    if(curVar %in% c("AGEP","Income","Year")){
+      #do nothing
+    } else if (curVar %in% c("SOCP","ANC1P")){
+      DfOut[[curVar]] <- NULL
+    } else{
+      NAIdx <- is.na(DfInp[[curVar]])
+      currVarAsChar <- as.character(DfInp[[curVar]])
+      currVarAsChar[NAIdx] <- "n/a"
+      DfOut[[curVar]] <- as.factor(currVarAsChar)
+    }
+    
+  }
+  return(DfOut)
+}
+```
+
+
+```{r}
+#Formatting 2018 and 2019 census data from California
+CensusBothYears <- rbind(Census2018Dat %>% mutate(Year=2018),Census2019Dat %>% mutate(Year=2019))
+FormattedCensus <-  FormatCensus(CensusBothYears) %>% filter(!is.na(Income))
+FormattedCensus2018 <- FormattedCensus[FormattedCensus$Year==2018,] %>% mutate(Year=NULL)
+FormattedCensus2019 <- FormattedCensus[FormattedCensus$Year==2019,] %>% mutate(Year=NULL)
+```
+
+Predicting Disability
+```{r}
+library(ranger)
+
+rf2018FitDisability <- ranger(DIS~.,data = FormattedCensus2018,num.trees = 500)
+Preds2019Disability <- predict(object= rf2018FitDisability,data = FormattedCensus2019 %>% mutate(DIS=NULL))$predictions
+
+#Confusion matrix and overall accuracy of disability predictions
+table(Preds2019Disability,FormattedCensus2019$DIS)
+mean(Preds2019Disability==FormattedCensus2019$DIS)
+```
+
+Formatting dataset for experiments
+```{r}
+#Changing non disability from 2 to 0 (disability remains at 1)
+DisabilityPreds0_1 <- 2-as.numeric(Preds2019Disability)
+ActualDisability0_1 <- 2-as.numeric(FormattedCensus2019$DIS)
+table(DisabilityPreds0_1,ActualDisability0_1)
+GoodDatAllAge <- data.frame(FormattedCensus2019$Income,FormattedCensus2019$AGEP,ActualDisability0_1)
+ProxyDatAllAge <- data.frame(FormattedCensus2019$Income,FormattedCensus2019$AGEP,DisabilityPreds0_1)
+names(GoodDatAllAge) <- c("Income","Age","Disability")
+names(ProxyDatAllAge) <- c("Income","Age","Disability")
+
+#Filtering to ages 25-64 and defining strata based on 10 year age buckets
+idkKeep <- (FormattedCensus2019$AGEP>24) & (FormattedCensus2019$AGEP<65)
+GoodDat <- GoodDatAllAge[idkKeep,]
+ProxyDat <- ProxyDatAllAge[idkKeep,]
+StrataIDs <- rep(NA,nrow(GoodDat))
+AgeCuts <- c(25,35,45,55,65)
+for(j in 1:(length(AgeCuts)-1)){
+  idxCurrStrata <- (GoodDat$Age >= AgeCuts[j] ) & (GoodDat$Age< AgeCuts[j+1])
+  StrataIDs[idxCurrStrata] <- j
+}
+nStrata <- length(unique(StrataIDs))
+StrataInfo <- data.frame(sort(unique(StrataIDs),decreasing = F),rep(1250,nStrata),rep(250,nStrata))
+names(StrataInfo) <- c("Strata","NMain","NCalib")
+
+
+IncomeDatFormatted <- list(GoodDat=GoodDat,ProxyDat=ProxyDat,StrataIDs=StrataIDs,StrataInfo=StrataInfo)
+save(IncomeDatFormatted,file = paste0(getwd(),"/Datasets/CensusStratIncomeFormatted.RData"))
+```
+
+
+
+
+```{r}
+GenerateStratifiedSample <- function(StratDfInp){
+  
+  GoodDatCalibL <- list()
+  ProxyDatCalibL <- list()
+  WeightsCalibL <- list()
+  ProxyDatMainL <- list()
+  WeightsMainL <- list()
+  
+  for(i in 1:nrow(StratDfInp$StrataInfo)){
+    idxCurrStrat <- which(StratDfInp$StrataIDs==StratDfInp$StrataInfo$Strata[i])
+    StratSizeCurr <- length(idxCurrStrat)
+    
+    #Generating Calibration Sample
+    idxCalibCurrStrat <- sample(idxCurrStrat,size = StratDfInp$StrataInfo$NCalib[i],replace = F)
+    
+    GoodDatCalibL[[i]] <- StratDfInp$GoodDat[idxCalibCurrStrat,]
+    ProxyDatCalibL[[i]] <- StratDfInp$ProxyDat[idxCalibCurrStrat,]
+    WeightsCalibL[[i]] <- rep(StratSizeCurr/length(idxCalibCurrStrat),length(idxCalibCurrStrat))
+    
+    #Main sample
+    idxMainCurrStrat <- sample(idxCurrStrat,size = StratDfInp$StrataInfo$NMain[i],replace = F)
+    ProxyDatMainL[[i]] <- StratDfInp$ProxyDat[idxMainCurrStrat,]
+    WeightsMainL[[i]] <- rep(StratSizeCurr/length(idxMainCurrStrat),length(idxMainCurrStrat))
+  }
+  return(list(GoodDatCalibL=GoodDatCalibL,ProxyDatCalibL=ProxyDatCalibL,WeightsCalibL=WeightsCalibL,ProxyDatMainL=ProxyDatMainL,WeightsMainL=WeightsMainL))
+}
+```
+
+```{r}
+stackDfOrVector <- function(listInp){
+  
+  Tcurr <- listInp[[1]]
+  if(is.vector(Tcurr)){
+    for(i in 2:length(listInp)){Tcurr <- c(Tcurr,listInp[[i]])}
+  } else{
+      for(i in 2:length(listInp)){ Tcurr <- rbind(Tcurr,listInp[[i]])}
+  }
+  return(Tcurr)
+}
+```
+
+```{r}
+TakeStratBootDraw <- function(GoodDatCalibInp,ProxyDatCalibInp,ProxyDatMainInp){
+  nStrat <- length(ProxyDatMainInp)
+  GoodDatCalibOut <- list()
+  ProxyDatCalibOut <- list()
+  ProxyDatMainOut <- list()
+  for(i in 1:nStrat){
+    NresampCalib <- nrow(GoodDatCalibInp[[i]])
+    idxResampCalib <- sample(1:NresampCalib,size = NresampCalib,replace = T)
+    GoodDatCalibOut[[i]] <- GoodDatCalibInp[[i]][idxResampCalib,]
+    ProxyDatCalibOut[[i]] <- ProxyDatCalibInp[[i]][idxResampCalib,]
+    
+    NResampMain <- nrow(ProxyDatMainInp[[i]])
+    idxResampMain <- sample(1:NResampMain,size = NResampMain,replace = T)
+    ProxyDatMainOut[[i]] <- ProxyDatMainInp[[i]][idxResampMain,]
+  }
+  return(list(GoodDatCalib=GoodDatCalibOut,ProxyDatCalib=ProxyDatCalibOut,ProxyDatMain=ProxyDatMainOut))
+}
+```
+
+
+
+
+```{r}
+runStratifiedSampleBootIncomeExample <- function(StratifiedSampleDat,nBoot=2000,alpha=0.1){
+  
+  #Point estimates
+  weightsCalib <- stackDfOrVector(StratifiedSampleDat$WeightsCalibL)
+  hatBetaCalib <- lm(formula = Income~.,data = stackDfOrVector(StratifiedSampleDat$GoodDatCalibL),weights = weightsCalib)$coefficients
+  hatGammaCalib <- lm(formula = Income~.,data = stackDfOrVector(StratifiedSampleDat$ProxyDatCalibL),weights = weightsCalib)$coefficients
+  CoefNamesBetaHat <- names(hatBetaCalib)
+  
+  weightsMain <- stackDfOrVector(StratifiedSampleDat$WeightsMainL)
+  hatGammaMain <- lm(formula = Income~.,data = stackDfOrVector(StratifiedSampleDat$ProxyDatMainL),weights =weightsMain)$coefficients
+  
+  hatBetaCalibBootMat <- matrix(NA,nrow = nBoot,ncol = length(hatBetaCalib))
+  hatGammaCalibBootMat <- matrix(NA,nrow = nBoot,ncol = length(hatGammaCalib))
+  hatGammaMainBootMat <- matrix(NA,nrow = nBoot,ncol = length(hatGammaMain))
+
+  for(b in 1:nBoot){
+    
+    #Take bootstrap draws #Weights do not change with bootstrap for this example
+    BootCurr <- TakeStratBootDraw(GoodDatCalibInp  = StratifiedSampleDat$GoodDatCalibL,
+                      ProxyDatCalibInp = StratifiedSampleDat$ProxyDatCalibL,
+                      ProxyDatMainInp =  StratifiedSampleDat$ProxyDatMainL)
+    hatBetaCalibBootMat[b,] <- lm(formula = Income~.,data = stackDfOrVector(BootCurr$GoodDatCalib),weights = weightsCalib)$coefficients
+    hatGammaCalibBootMat[b,] <- lm(formula = Income~.,data = stackDfOrVector(BootCurr$ProxyDatCalib),weights = weightsCalib)$coefficients 
+    hatGammaMainBootMat[b,] <- lm(formula = Income~.,data = stackDfOrVector(BootCurr$ProxyDatMain),weights = weightsMain)$coefficients
+
+
+  }
+      if(sum(is.na(hatBetaCalibBootMat))>0){print(paste0("beta Calib boot NA entries: ",sum(is.na(hatBetaCalibBootMat)) ))}
+    if(sum(is.na(hatGammaCalibBootMat))>0){print(paste0("gamma Calib boot NA entries: ",sum(is.na(hatGammaCalibBootMat)) ))}
+    if(sum(is.na(hatGammaMainBootMat))>0){print(paste0("beta Calib boot NA entries: ",sum(is.na(hatGammaMainBootMat)) ))}
+  
+  #Estimated choices for optimal Omega
+   OptOmegasList <- list()
+   M1 <- cov(hatBetaCalibBootMat,hatGammaCalibBootMat)
+   M2 <- cov(hatGammaCalibBootMat)+cov(hatGammaMainBootMat)
+   OptOmegasList[['ExactBoot']] <- M1 %*% solve(M2)
+   OptOmegasList[['OptDiag']] <- diag(diag(M1)/diag(M2))
+   OptOmegasList[['None']] <- diag(nrow(M2))
+   OptOmegasList[['ZeroMat']] <- matrix(0,nrow = nrow(M2),ncol = ncol(M2))
+
+
+  #Calculating confidence intervals for each OmegaHat choice
+  PPCIList <- list()
+  for(OmIdx in 1:length(OptOmegasList)){
+    OmegaHat <- OptOmegasList[[names(OptOmegasList)[OmIdx]]]
+    
+    #Prediction-Powered point estimate
+    betaPPest <- as.vector(hatBetaCalib+ OmegaHat %*% (hatGammaMain-hatGammaCalib))
+    
+    
+    
+    #CI based on percentile bootstrap
+    PPEstBoot <-  hatBetaCalibBootMat + t(OmegaHat %*% t(hatGammaMainBootMat-hatGammaCalibBootMat))
+    CILBSUBS <- t(sapply(data.frame(PPEstBoot), FUN = function(x) quantile(x,probs = c(alpha/2,1-alpha/2))))
+    CICurrScheme <- cbind(matrix(colMeans(PPEstBoot),ncol=1),CILBSUBS)
+      
+    rownames(CICurrScheme) <- CoefNamesBetaHat
+    colnames(CICurrScheme) <- c("Estimate","CI_lb","CI_ub") 
+    if(names(OptOmegasList)[OmIdx]=='ZeroMat'){
+      nameCI <- 'classical'
+    } else{
+      nameCI <- paste0("FullBootPercentile_",names(OptOmegasList)[OmIdx])
+    }
+    
+    PPCIList[[nameCI]] <- CICurrScheme
+
+    
+  }    
+        
+  return(list(OptOmegasList=OptOmegasList,CIList=PPCIList))
+  
+}
+```
+
+
+
+```{r}
+load(paste0(getwd(),"/Datasets/CensusStratIncomeFormatted.RData"))
+
+
+
+nSims <- 500
+SimResultList <- list()
+
+currTime <- proc.time()[3]
+  for(i in 1:nSims){
+    if(i %% 10==1){ 
+      print(paste0("Starting Simulation ",i," out of ",nSims))
+      print(paste0("Minutes elapsed since last message: ",(proc.time()[3]-currTime)/60))
+      currTime <- proc.time()[3]
+    }
+
+  SimResultList[[i]] <- runStratifiedSampleBootIncomeExample(GenerateStratifiedSample(StratDfInp = IncomeDatFormatted),alpha = 0.1)
+  }
+
+
+SimResultsIncomeStratified <- list(SimResultList=SimResultList,alphaUsed=0.1)
+save(SimResultsIncomeStratified,file = paste0(getwd(),"/SimulationResults/CensusIncomeStratifiedSims.RData"))
+```
+
+
+
