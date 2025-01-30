@@ -1,4 +1,5 @@
-#Helper functions
+#Helper functions runs linear, logistic, poisson, and quantile regression and returns the sandwich covariance as necessary
+#This is called in PTDBootModularized and BootstrapAndCalcEsts
 
 library(quantreg)
 
@@ -8,7 +9,7 @@ FormatAndFitReg <- function(DatInp2,RegTypeInp2,WeightsInp=NULL,clusterIDInp2=NU
   VCOVSandwich <- NULL
   RegFormulaLocal <- as.formula(paste0(OutcomeVarInp2,"~ ."))
   
-  if(RegTypeInp2 %in% c("Quantile","Quantile Regression")){#Quantile regression
+  if(RegTypeInp2 %in% c("Quantile","Quantile Regression","quantile","quantile regression")){#Quantile regression
     QuantileRegFit <- rq(formula = RegFormulaLocal,data = DatInp2,tau = quantileTauInp,weights = WeightsInp)
     CoefsEst <- QuantileRegFit$coefficients
     if(CalcSandwhich){VCOVSandwich <- summary(QuantileRegFit,se="ker",covariance = TRUE)$cov}

@@ -1,23 +1,32 @@
 ##########################################################
 # INPUTS
 #  ProxyDat := An m x (p+1) data frame where all variables that are not widely available are replaced by their widely available proxies
-#  GoodDat  := An m x (p+1) data frame with the actual data. Rows corresponding to data points that were not labelled should be set toNA
-#  NOTE: For now ProxyDat and GoodDat should have the same column names 
+#  GoodDat  := An m x (p+1) data frame with the actual data. Rows corresponding to data points that were not labelled should be set to NA
+#  NOTE: ProxyDat and GoodDat should have the same column names 
+
 #  PiLabel := A vector of length m giving the probability that a label was collected for each row in the proxy data.
-#  If the labelled data is from the same distribution as the unlabelled data (or if each point had the same probability of being labelled)
-#  set this to null
-#  OutcomeVarName   := The name of the outcome variable in your data frame. PPIBootCalibNonCalibSplit.glm will regress that variable on the remaining variables.
-#  RegType   := Use "linear" for linear regression, "logistic" for logistic regression,"Poisson" for Poisson regression
+#  NOTE: These probabilities need to be properly scaled such that they are probabilities (if they are merely proportional to the probabilities this can lead to issues)
+#  If the labelled data is from the same distribution as the unlabelled data to insert a constant vector for PiLabel but it should be appropriately scaled
 
+#  OutcomeVarName   := The name of the outcome variable in your data frame. This function will estimate the regression of that variable on the remaining variables.
 
-#  Bootstrap Scheme   
-#  use  "CLTBased" for a confidence interval based on a plug in estimate for the asymptotic variance and the CLT (GLM only)
-#  use "QuickConvolution" for an approach that takes a convolution of the normal approximation for the noncalibration term and a draw from the bootstrap distribution for the bias correction term
-#  use "FullBootStudentized" for the slow (potentially 2nd order accurate) approach (studentized bootstrap available for GLM only)
-#  use "FullBasicBoot" for the slow (but intuitive) basic bootstrap approach
-#  use "FullBootPercentile" for the slow (but intuitive) percentile bootstrap approach
+#  RegType   := Use "linear" for linear regression, "logistic" for logistic regression,"Poisson" for Poisson regression, "Quantile" for Quantile regression (set tauQuantReg to be the quantile )
 
-#  TuningScheme Scheme 
+#  tauQuantReg := is the quantile of interest for quantile regression (only use this if you are running quantile regression)
+
+#  nBootInference := The number of bootstrap draws B (the default is 2000. Larger B cannot hurt, but can lead to slower runtime)
+
+#  alpha := Statistical significance level. The default is 0.05, but note that the paper used 0.1
+
+#  BootstrapScheme :=   
+#  Note that you can select multiple options in one run of this function
+#  use  "CLTBased" for Algorithm 4 from the paper. This computes a confidence interval based on a plug in estimate for the asymptotic variance and the CLT (CLTBased CIs are currently available for GLM only and are not currently available for cluster sampling settings)
+#  use "QuickConvolution" for Algorithm 3 from the paper. This an approach that takes a convolution of the normal approximation for the noncalibration term and a draw from the bootstrap distribution for the bias correction term
+#  use "FullBootStudentized" for the slow (potentially 2nd order accurate) approach (studentized bootstrap is available for GLM only and not available for cluster sampling settings)
+#  use "FullBasicBoot" for the slow basic bootstrap approach
+#  use "FullBootPercentile" for Algorithm 2 from the paper. This is the percentile bootstrap approach
+
+#  TuningScheme := character vector of tuning schemes to use. Note that you can select multiple options in one run of this function (at no major cost to the runtime)
 #  "Optimal"  Estimates optimal tuning matrix
 #  "Diagonal" Estimates optimal tuning matrix among diagonal tuning matrices
 #  "None" sets Omega to the identity
@@ -30,7 +39,7 @@
 library(sandwich)
 library(lmtest)
 
-PTDBootModularized <-function(ProxyDat,GoodDat,PiLabel=NULL,clusterID=NULL,OutcomeVarName="Y",RegType="linear",BootstrapScheme="QuickConvolution",nBootTune=0,nBootInference=1000,useInfBootForTuning=T,alpha=0.05, TuningScheme="Optimal",OmegaOutlierThresh=10^(10),tauQuantReg=NULL){
+PTDBootModularized <-function(ProxyDat,GoodDat,PiLabel=NULL,clusterID=NULL,OutcomeVarName="Y",RegType="linear",BootstrapScheme="QuickConvolution",nBootTune=0,nBootInference=2000,useInfBootForTuning=T,alpha=0.05, TuningScheme="Optimal",OmegaOutlierThresh=10^(10),tauQuantReg=NULL){
   
   #Helpful variable definitions for bootstrap 
   m <- nrow(ProxyDat)
@@ -48,6 +57,12 @@ PTDBootModularized <-function(ProxyDat,GoodDat,PiLabel=NULL,clusterID=NULL,Outco
     if(length(dplyr::intersect(ClustersCalib,ClustersNonCalib))>0){
       print("Warning: some clusters have a combination of calibration and noncalibration samples. Method assumes each cluster is either only in the either entirely in the calibration sample or not in the calibration sample at all.")
     }
+    
+    if(is.null(PiLabl)){
+      print("Warning: PiLabel set to NULL, this can cause issues.") 
+      print("If the labelled data is from the same distribution as the unlabelled a constant vector for PiLabel with values n/m where m is the totatl sample size and n is number of calibration samples (or the expected number of calibration samples when calibration sample size is randomly selected)")
+    }
+    
     if(!is.null(PiLabel)){
       LabelClusterSummaries <- data.frame(PiLabel,clusterID) %>% group_by(clusterID) %>% summarise(piLabMax=max(PiLabel),piLabMin=min(PiLabel),PiLabelCluster=mean(PiLabel))
         if(max(LabelClusterSummaries$piLabMax-LabelClusterSummaries$piLabMin)>0){
@@ -109,13 +124,13 @@ PTDBootModularized <-function(ProxyDat,GoodDat,PiLabel=NULL,clusterID=NULL,Outco
   #Collecting Bootstrap samples
   nBootTotal <- nBootTune+nBootInference
   if(sum(BootstrapScheme %in% c("FullBootStudentized"))>0){
-    Boots <- BootstrapAndCalcEsts.glm(ProxyDatInp = ProxyDat,GoodDatInp = GoodDat,PiLabelInp = PiLabel,clusterIDInp=clusterID,
+    Boots <- BootstrapAndCalcEsts(ProxyDatInp = ProxyDat,GoodDatInp = GoodDat,PiLabelInp = PiLabel,clusterIDInp=clusterID,
                                       OutcomeVarInp = OutcomeVarName,RegTypeInp = RegType,B = nBootTotal,CalcNonCalib = TRUE,CalcPPSe=TRUE,quantTauInp2 = tauQuantReg)
   } else if(sum(BootstrapScheme %in% c("FullBootPercentile","FullBasicBoot"))>0){
-    Boots <- BootstrapAndCalcEsts.glm(ProxyDatInp = ProxyDat,GoodDatInp = GoodDat,PiLabelInp = PiLabel,clusterIDInp=clusterID,
+    Boots <- BootstrapAndCalcEsts(ProxyDatInp = ProxyDat,GoodDatInp = GoodDat,PiLabelInp = PiLabel,clusterIDInp=clusterID,
                                       OutcomeVarInp = OutcomeVarName,RegTypeInp = RegType,B = nBootTotal,CalcNonCalib = TRUE,quantTauInp2 = tauQuantReg)
   } else if(sum(BootstrapScheme %in% c("QuickConvolution"))>0){
-    Boots <- BootstrapAndCalcEsts.glm(ProxyDatInp = ProxyDat,GoodDatInp = GoodDat,PiLabelInp = PiLabel,clusterIDInp=clusterID,
+    Boots <- BootstrapAndCalcEsts(ProxyDatInp = ProxyDat,GoodDatInp = GoodDat,PiLabelInp = PiLabel,clusterIDInp=clusterID,
                                       OutcomeVarInp = OutcomeVarName,RegTypeInp = RegType,B = nBootTotal,CalcNonCalib = FALSE,quantTauInp2 = tauQuantReg)
   }
   if(useInfBootForTuning){
@@ -201,6 +216,7 @@ PTDBootModularized <-function(ProxyDat,GoodDat,PiLabel=NULL,clusterID=NULL,Outco
         CICurrScheme <- cbind(matrix(betaPPest,ncol=1),CI_lbs,CI_ubs)
       }
       
+      #CI based on convolution bootstrap (Algorithm 3)
       if(BootstrapSchemeCurr=="QuickConvolution"){
         CalibDatBiasEstBoot <- Boots$betaHatCalibBoot[idxBootInf,] - t(OmegaTuned %*% t(Boots$gammaHatCalibBoot[idxBootInf,]))
 
@@ -213,7 +229,7 @@ PTDBootModularized <-function(ProxyDat,GoodDat,PiLabel=NULL,clusterID=NULL,Outco
       }
       
       
-      #CI based on percentile bootstrap
+      #CI based on percentile bootstrap (Algorithm 2)
       if(BootstrapSchemeCurr=="FullBootPercentile"){
         PPEstBoot <-  Boots$betaHatCalibBoot[idxBootInf,] + t(OmegaTuned %*% t(Boots$gammaHatNonCalibBoot[idxBootInf,]-Boots$gammaHatCalibBoot[idxBootInf,]))
         CILBSUBS <- t(sapply(data.frame(PPEstBoot), FUN = function(x) quantile(x,probs = c(alpha/2,1-alpha/2))))
@@ -253,17 +269,6 @@ PTDBootModularized <-function(ProxyDat,GoodDat,PiLabel=NULL,clusterID=NULL,Outco
 
     }
   }
-  
-  
-
-    
-  
-
-
-  
-  
-  
-
   
   #Alternative beta estimates and CIs
   

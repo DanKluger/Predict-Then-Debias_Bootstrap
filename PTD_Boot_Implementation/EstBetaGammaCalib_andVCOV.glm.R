@@ -1,4 +1,6 @@
-#This 
+#This helper function applies to GLMs only. It does not apply to clustered or weighted sampling settings either.
+#It takes a dataset as input and computes a sandwich estimator for the asymptotic covariance matrix of (hatBetaCalib,hatGammaCalib)  
+#It is called when using CLT-based confidence intervals in PTDBootModularized. It is also called in each bootstrap interation when using the studentized bootstrap
 
 EstBetaGammaCalib_andVCOV.glm <- function(GoodDatInp,ProxyDatInp,PiInp,RegType="linear",OutcomeVar="Y",Minp){
   m <- Minp
