@@ -90,7 +90,7 @@ LabelRandomSubsetofClusters <- function(GoodDatInp,ProxyDatInp,piLabelInpUsnc=NU
 
 ```{r}
 source("PTDBootModularized.R")
-source("BootstrapAndCalcEsts.glm.R")
+source("BootstrapAndCalcEsts.R")
 source("EstBetaGammaCalib_andVCOV.glm.R")
 source("FormatAndFitReg.R")
 ```
