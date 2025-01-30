@@ -220,11 +220,14 @@ library(ggplot2)
 library(ggpubr)
 pointShapeManual <- scale_shape_manual(values = c(16,15,17,23))
 
+#Make Figure 3
+
 WidthPanel1 <- ggplot(data = VaryCIMethodTabNormalized,mapping = aes(x=CIWidths_mean_norm,y = CoefNameFactor,col=Method,shape=Method,fill=Method))+facet_grid("Experiment",scales = "free_y",space = "free_y")+geom_point(position=position_dodge(0.75),size=1)+theme_bw()+geom_errorbar(aes(xmin=CIWidths_mean_norm-CIWidths_sd_norm,xmax=CIWidths_mean_norm+CIWidths_sd_norm),width=.6,position=position_dodge(0.75),alpha=1)+theme(legend.position = "top",strip.text.y = element_blank(),axis.text.y = element_text(size=8),panel.grid.major.x = element_blank(),panel.grid.minor = element_blank(),legend.text = element_text(size=8))+ylab("Coefficient")+xlab("Normalized Confidence Interval Width")+labs(colour="Method")+pointShapeManual
 
 CoveragePanel1 <- ggplot(data = VaryCIMethodTabNormalized,mapping = aes(x=Coverage,y = CoefNameFactor,col=Method,shape=Method,fill=Method))+facet_grid("Experiment",scales = "free_y",space = "free_y")+geom_point(position=position_dodge(0.75),size=1)+theme_bw()+theme(legend.position = "top",strip.text.y = element_blank(),axis.text.y =element_blank(),panel.grid.major.x = element_blank(),panel.grid.minor = element_blank(),legend.text = element_text(size=8))+ylab("")+xlab("Empirical Coverage")+labs(colour="Method")+geom_vline(xintercept = 0.9,linetype="dashed")+xlim(c(0,1))+pointShapeManual
 Plt1 <- ggarrange(WidthPanel1,CoveragePanel1,ncol=2,common.legend = T,widths = c(2,1))
 
+#Make Figure #4
 
 WidthPanel2 <-ggplot(data = CIVaryTuningMatrixTabNormalized,mapping = aes(x=CIWidths_mean_norm,y = CoefNameFactor,col=Method,shape=Method,fill=Method))+facet_grid("Experiment",scales = "free_y",space = "free_y")+geom_point(position=position_dodge(0.75),size=1)+theme_bw()+geom_errorbar(aes(xmin=CIWidths_mean_norm-CIWidths_sd_norm,xmax=CIWidths_mean_norm+CIWidths_sd_norm),width=.6,position=position_dodge(0.75),alpha=1)+theme(legend.position = "top",strip.text.y = element_blank(),axis.text.y = element_text(size=8),panel.grid.major.x = element_blank(),panel.grid.minor = element_blank(),legend.text = element_text(size=8))+ylab("Coefficient")+xlab("Normalized Confidence Interval Width")+labs(colour="Method")+pointShapeManual
 
@@ -390,8 +393,8 @@ LinePlotForLegend <- ggplot(data = DfForLeged,mapping = aes(x = X,y = Y,col=Esti
 CombLegends <- ggarrange(get_legend(LinePlotForLegend),geom_blank(),LegList$EstimatesLegend,geom_blank(),nrow = 4)
 
 
-pltExps1to3NoLegend <-  ggarrange(geom_blank(),pltList[[1]],pltList[[2]],pltList[[3]],nrow = 4,labels = c("","AlphaFold with Weighted Sampling (#1)","Housing Price Linear Regression (#2)","Housing Price Quantile Regression (#3)"),heights = c(0.2,1,1,1),font.label = list(size=8.5,face="plain"),vjust = 0.4,hjust=0)
-pltExps4to7NoLegend <-  ggarrange(pltList[[4]],pltList[[5]],pltList[[6]],pltList[[7]],nrow = 4,labels = c("Treecover Linear Regression (#4)","Treecover with Clustered Sampling (#5)","Treecover Logistic Regression (#6)","Census with Stratified Sampling (#7)"),font.label = list(size=8.5,face="plain"),vjust = 0.4,hjust=0)
+pltExps1to3NoLegend <-  ggarrange(geom_blank(),pltList[[1]],pltList[[2]],pltList[[3]],nrow = 4,labels = c("","(1) AlphaFold with Weighted Sampling","(2) Housing Price Linear Regression","(3) Housing Price Quantile Regression"),heights = c(0.2,1,1,1),font.label = list(size=8.5,face="plain"),vjust = 0.4,hjust=0)
+pltExps4to7NoLegend <-  ggarrange(pltList[[4]],pltList[[5]],pltList[[6]],pltList[[7]],nrow = 4,labels = c("(4) Tree Cover Linear Regression","(5) Tree Cover with Clustered Sampling","(6) Tree Cover Logistic Regression","(7) Census with Stratified Sampling"),font.label = list(size=8.5,face="plain"),vjust = 0.4,hjust=0)
 pltExps4to7Legend   <-  ggarrange(pltExps4to7NoLegend,CombLegends,widths = c(3,1))
 
 pltExps1to7 <- ggarrange(pltExps1to3NoLegend,pltExps4to7Legend,nrow = 2,heights = c(3.2,4))

@@ -38,7 +38,7 @@ RandomSubsetThenLabelFixedSizesUniformSampling <- function(FormattedDatInp,mTarg
     
      FormattedDatSubset$GoodDatWMissing  <- GoodDatWMissing
   
-    FormattedDatSubset$PiLabelUnsc <- rep(nLabelTarget/mTarget,mTarget)
+    FormattedDatSubset$PiLabel <- rep(nLabelTarget/mTarget,mTarget)
 
   return(FormattedDatSubset)
 }
@@ -52,7 +52,7 @@ RandomSubsetThenLabelFixedSizesUniformSampling <- function(FormattedDatInp,mTarg
 load(paste0(getwd(),"/Datasets/","HousingPriceFormatted.RData"))
 
 source("PTDBootModularized.R")
-source("BootstrapAndCalcEsts.glm.R")
+source("BootstrapAndCalcEsts.R")
 source("EstBetaGammaCalib_andVCOV.glm.R")
 source("FormatAndFitReg.R")
 ```
@@ -78,7 +78,7 @@ colnames(PointEsts) <- c("Classical","Naive","PTD")
       
     
 
-    SimResultCurr <- PTDBootModularized(ProxyDat = CurrSamp$ProxyDat,GoodDat = CurrSamp$GoodDatWMissing ,BootstrapScheme=BootstrapSchemesInp,PiLabel = CurrSamp$PiLabelUnsc ,TuningScheme = tuningSchemesInp,RegType = regTypeInp,OutcomeVarName = outcomeVarName,alpha = alphaInp)
+    SimResultCurr <- PTDBootModularized(ProxyDat = CurrSamp$ProxyDat,GoodDat = CurrSamp$GoodDatWMissing ,BootstrapScheme=BootstrapSchemesInp,PiLabel = CurrSamp$PiLabel ,TuningScheme = tuningSchemesInp,RegType = regTypeInp,OutcomeVarName = outcomeVarName,alpha = alphaInp)
     PointEsts[i,'Classical'] <- SimResultCurr$CIList$classical[betaTrack,'Estimate']
     PointEsts[i,'PTD'] <- SimResultCurr$CIList$CLTBased_Optimal[betaTrack,'Estimate']
     PointEsts[i,'Naive'] <- SimResultCurr$CIList$naive[betaTrack,'Estimate']
