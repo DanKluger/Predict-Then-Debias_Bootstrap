@@ -76,8 +76,8 @@ load(paste0(getwd(),"/Datasets/","TreecoverFormatted.RData"))
 TrueBetaList[[4]] <- lm(formula = Treecover ~ .,data = TreecoverFormatted$GoodDat)$coefficients
 TrueGammaList[[4]] <- lm(formula = Treecover ~ .,data = TreecoverFormatted$ProxyDat)$coefficients
 
-TrueBetaList[[5]] <- TrueBetaList[[4]] 
-TrueGammaList[[5]] <- TrueGammaList[[4]] 
+TrueBetaList[[5]] <- TrueBetaList[[4]] #Point estimates are the same for clustered sampling
+TrueGammaList[[5]] <- TrueGammaList[[4]] #Point estimates are the same for clustered sampling
 load(paste0(getwd(),"/Datasets/","TreecoverBinarizedFormatted.RData"))
 
 TrueBetaList[[6]] <- glm(formula = Forest ~ .,family = "binomial",data = TreecoverBinarizedFormatted$GoodDat)$coefficients
@@ -218,20 +218,28 @@ VaryCIMethodTabNormalized <- nomarlizeAndrelevelSummaryTable(SummaryTabInp = Var
 #plot results
 library(ggplot2)
 library(ggpubr)
-pointShapeManual <- scale_shape_manual(values = c(16,15,17,23))
 
+color_scale_ManualCIs <- scale_color_manual(values = c("#619CFF","#800080","#d896ff","#65fe08"))
+color_scale_ManualTuning <- scale_color_manual(values = c("#619CFF","#c76e00","#65fe08","#348a00"))
+alphaInp <- 1
+
+
+pointShapeManual <- scale_shape_manual(values = c(16,15,17,18))
+ptSizeManual <- scale_size_manual(values = c(0.5,0.5,0.5,3))
+
+pltTheme <- theme(legend.position = "top",strip.text.y = element_blank(),axis.text.y = element_text(size=8),panel.grid.major.x = element_blank(),panel.grid.major.y = element_line(size=0.2),panel.grid.minor = element_blank(),legend.text = element_text(size=8))
 #Make Figure 3
 
-WidthPanel1 <- ggplot(data = VaryCIMethodTabNormalized,mapping = aes(x=CIWidths_mean_norm,y = CoefNameFactor,col=Method,shape=Method,fill=Method))+facet_grid("Experiment",scales = "free_y",space = "free_y")+geom_point(position=position_dodge(0.75),size=1)+theme_bw()+geom_errorbar(aes(xmin=CIWidths_mean_norm-CIWidths_sd_norm,xmax=CIWidths_mean_norm+CIWidths_sd_norm),width=.6,position=position_dodge(0.75),alpha=1)+theme(legend.position = "top",strip.text.y = element_blank(),axis.text.y = element_text(size=8),panel.grid.major.x = element_blank(),panel.grid.minor = element_blank(),legend.text = element_text(size=8))+ylab("Coefficient")+xlab("Normalized Confidence Interval Width")+labs(colour="Method")+pointShapeManual
+WidthPanel1 <- ggplot(data = VaryCIMethodTabNormalized,mapping = aes(x=CIWidths_mean_norm,y = CoefNameFactor,col=Method,shape=Method,fill=Method))+facet_grid("Experiment",scales = "free_y",space = "free_y")+geom_point(position=position_dodge(0.75),alpha=alphaInp)+theme_bw()+geom_errorbar(aes(xmin=CIWidths_mean_norm-CIWidths_sd_norm,xmax=CIWidths_mean_norm+CIWidths_sd_norm),width=.6,position=position_dodge(0.75),alpha=alphaInp)+pltTheme+ylab("Coefficient")+xlab("Normalized Confidence Interval Width")+labs(colour="Method")+pointShapeManual+color_scale_ManualCIs+ptSizeManual
 
-CoveragePanel1 <- ggplot(data = VaryCIMethodTabNormalized,mapping = aes(x=Coverage,y = CoefNameFactor,col=Method,shape=Method,fill=Method))+facet_grid("Experiment",scales = "free_y",space = "free_y")+geom_point(position=position_dodge(0.75),size=1)+theme_bw()+theme(legend.position = "top",strip.text.y = element_blank(),axis.text.y =element_blank(),panel.grid.major.x = element_blank(),panel.grid.minor = element_blank(),legend.text = element_text(size=8))+ylab("")+xlab("Empirical Coverage")+labs(colour="Method")+geom_vline(xintercept = 0.9,linetype="dashed")+xlim(c(0,1))+pointShapeManual
+CoveragePanel1 <- ggplot(data = VaryCIMethodTabNormalized,mapping = aes(x=Coverage,y = CoefNameFactor,col=Method,shape=Method,fill=Method))+facet_grid("Experiment",scales = "free_y",space = "free_y")+geom_point(position=position_dodge(0.75),alpha=alphaInp)+theme_bw()+pltTheme+ylab("")+xlab("Empirical Coverage")+labs(colour="Method")+geom_vline(xintercept = 0.9,linetype="dashed")+xlim(c(0,1))+pointShapeManual+color_scale_ManualCIs+ptSizeManual+theme(axis.text.y=element_blank())
 Plt1 <- ggarrange(WidthPanel1,CoveragePanel1,ncol=2,common.legend = T,widths = c(2,1))
 
 #Make Figure #4
 
-WidthPanel2 <-ggplot(data = CIVaryTuningMatrixTabNormalized,mapping = aes(x=CIWidths_mean_norm,y = CoefNameFactor,col=Method,shape=Method,fill=Method))+facet_grid("Experiment",scales = "free_y",space = "free_y")+geom_point(position=position_dodge(0.75),size=1)+theme_bw()+geom_errorbar(aes(xmin=CIWidths_mean_norm-CIWidths_sd_norm,xmax=CIWidths_mean_norm+CIWidths_sd_norm),width=.6,position=position_dodge(0.75),alpha=1)+theme(legend.position = "top",strip.text.y = element_blank(),axis.text.y = element_text(size=8),panel.grid.major.x = element_blank(),panel.grid.minor = element_blank(),legend.text = element_text(size=8))+ylab("Coefficient")+xlab("Normalized Confidence Interval Width")+labs(colour="Method")+pointShapeManual
+WidthPanel2 <-ggplot(data = CIVaryTuningMatrixTabNormalized,mapping = aes(x=CIWidths_mean_norm,y = CoefNameFactor,col=Method,shape=Method,fill=Method))+facet_grid("Experiment",scales = "free_y",space = "free_y")+geom_point(position=position_dodge(0.75),alpha=alphaInp)+theme_bw()+geom_errorbar(aes(xmin=CIWidths_mean_norm-CIWidths_sd_norm,xmax=CIWidths_mean_norm+CIWidths_sd_norm),width=.6,position=position_dodge(0.75),alpha=alphaInp)+pltTheme+ylab("Coefficient")+xlab("Normalized Confidence Interval Width")+labs(colour="Method")+pointShapeManual+color_scale_ManualTuning+ptSizeManual
 
-CoveragePanel2 <- ggplot(data = CIVaryTuningMatrixTabNormalized,mapping = aes(x=Coverage,y = CoefNameFactor,col=Method,fill=Method,shape=Method))+facet_grid("Experiment",scales = "free_y",space = "free_y")+geom_point(position=position_dodge(0.75),size=1)+theme_bw()+theme(legend.position = "top",strip.text.y = element_blank(),axis.text.y =element_blank(),panel.grid.major.x = element_blank(),panel.grid.minor = element_blank(),legend.text = element_text(size=8))+ylab("")+xlab("Empirical Coverage")+labs(colour="Method")+geom_vline(xintercept = 0.9,linetype="dashed")+xlim(c(0,1))+pointShapeManual
+CoveragePanel2 <- ggplot(data = CIVaryTuningMatrixTabNormalized,mapping = aes(x=Coverage,y = CoefNameFactor,col=Method,fill=Method,shape=Method,alpha))+facet_grid("Experiment",scales = "free_y",space = "free_y")+geom_point(position=position_dodge(0.75),alpha=alphaInp)+theme_bw()+pltTheme+ylab("")+xlab("Empirical Coverage")+labs(colour="Method")+geom_vline(xintercept = 0.9,linetype="dashed")+xlim(c(0,1))+pointShapeManual+color_scale_ManualTuning+ptSizeManual+theme(axis.text.y=element_blank())
 
 Plt2 <- ggarrange(WidthPanel2,CoveragePanel2,ncol=2,common.legend = T,widths = c(2,1))
 
@@ -318,43 +326,7 @@ relevelSimTable <- function(SimTableInp,coefNameMatInp,methodNameMatInp2,expNumb
 }
 ```
  
-
-```{r}
- library(dplyr)
-library(ggplot2)
-library(ggpubr)
-PltDataSimsResults2 <- function(SimsTable,CoefNamesInp,ExpCurr,sideMargin=0.05){
-  
-  TrueBetaDf <- SimsTable %>% group_by(CoefNameFactor) %>% summarise(TrueBeta=mean(betaTrue))
-  NaiveBetaDf <- SimsTable %>% group_by(CoefNameFactor) %>% summarise(ProxyBasedEst=mean(gammaTrue))
-
-  
-  
-
-AdditionalPltFormat <- theme_bw()+theme(axis.text.x = element_text(size = 6),axis.title.x=element_blank(),axis.text.y = element_blank(),axis.title.y=element_blank(),panel.grid.minor = element_blank(),panel.grid.major = element_blank())#,axis.title.y = element_text(angle=0))
-
-#old color scheme c("#999999", "#008a00")
-#newer color scheme c("#FFFFFF", "#008a00")
-  pltEstimates <- ggplot(data = SimsTable ,aes(y=MethodFactor,x=Estimate,fill=Method))+geom_violin(position = "dodge")+scale_fill_manual(values=c("#FFFFFF", "#008a00"))+geom_vline(aes(xintercept=TrueBeta),data =TrueBetaDf,col="blue")+geom_vline(aes(xintercept=ProxyBasedEst),data =NaiveBetaDf,col="red",linetype="dashed")+facet_wrap( ~CoefNameFactor, nrow = 1, scales = "free_x")+AdditionalPltFormat+theme(strip.text = element_text(size = 7))  +theme(
-        strip.text = element_text(
-            margin = margin(t = 0.7, r = 0, b = 0.7, l = 0, unit = "pt")))+theme(legend.position="right")+theme(plot.margin =unit(c(0.2,sideMargin,0,sideMargin),"cm"))
-  
-  pltCIwidthds <- ggplot(data = SimsTable ,aes(y=MethodFactor,x=`CI Width`,fill=Method))+geom_violin(position = "dodge")+scale_fill_manual(values=c("#FFFFFF", "#008a00"))+facet_wrap( ~CoefNameFactor, nrow = 1, scales = "free_x")+AdditionalPltFormat+theme(strip.text.x = element_blank())+theme(legend.position="bottom")+theme(plot.margin =unit(c(0.03,sideMargin,0.4,sideMargin),"cm"))
-
-  
-  CIWidthLegend <- get_legend(pltCIwidthds)
-  EstimatesLegend <- get_legend(pltEstimates)
-
-  
-  pltAll <- ggarrange(pltEstimates,pltCIwidthds,nrow = 2,ncol = 1,heights = c(1.3,1),labels = c("",""),font.label = list(size=7,face="plain"),vjust = 0.5,legend = "none")
-
-
-  
-  return(list(pltAll=pltAll,CIWidthLegend=CIWidthLegend,EstimatesLegend=EstimatesLegend))
-}
-```
-
-
+ 
 
 ```{r}
 CurrExpTableRelevel <- list()
@@ -375,35 +347,92 @@ for(i in 1:7){
 }
 ```
 
-Make Figure 2 (Violin plots)
+
+
+NEWER HALF VIOLIN PLOTS
+
 ```{r}
-pltList <- list()
-for(i in 1:7){
-  pltList[[i]] <-  PltDataSimsResults2(SimsTable = CurrExpTableRelevel[[i]],CoefNamesInp = CoefsNameMats[[i]],ExpCurr = i)$pltAll
+ library(dplyr)
+library(ggplot2)
+library(ggpubr)
+#library(see)
+library(gghalves)
+PltDataSimsResults2 <- function(SimsTable,CoefNamesInp,ExpCurr,sideMargins=c(1.5,0.2),textAdd=c("","")){
+  
+  TrueBetaDf <- data.frame(SimsTable %>% group_by(CoefNameFactor) %>% summarise(TrueBeta=mean(betaTrue))) 
+  NaiveBetaDf <- data.frame(SimsTable %>% group_by(CoefNameFactor) %>% summarise(ProxyBasedEst=mean(gammaTrue))) 
+  if(mean(TrueBetaDf$CoefNameFactor==NaiveBetaDf$CoefNameFactor)==1){
+    VertLineDf1 <- TrueBetaDf
+    VertLineDf1$CoefType <- rep("True Coefficient",nrow(TrueBetaDf))
+    names(VertLineDf1) <- c("CoefNameFactor","Estimate2","CoefType")
+    VertLineDf2 <- NaiveBetaDf
+    VertLineDf2$CoefType <- rep("Naive Estimate",nrow(TrueBetaDf))
+    names(VertLineDf2) <- c("CoefNameFactor","Estimate2","CoefType")
+    VertLineDf <- rbind(VertLineDf1,VertLineDf2)
+  }
+   
+
+  
+  
+
+AdditionalPltFormat <- theme_bw()+theme(axis.text.x = element_text(size = 5,vjust=2),axis.title.x=element_blank(),axis.title.y = element_blank(),axis.text.y = element_blank(),panel.grid.minor = element_blank(),panel.grid.major = element_blank())+
+ theme(strip.background = element_blank(),panel.background = element_blank(),panel.border = element_blank(),axis.ticks.y = element_blank(),strip.background.y=element_rect(color = NA))+theme(axis.line.x = element_line(linewidth = 0.22),axis.ticks.x = element_line(linewidth = 0.13))
+
+
+  pltEstimates <- ggplot()+geom_half_violin(data = SimsTable ,aes(y=Estimate,fill=Method),position=position_dodge(-0.5),side = "r",color="black",linewidth=0.01,scale="width",alpha=0.8)+scale_fill_manual(values=c("#619CFF", "#65fe08"))+geom_hline(aes(yintercept=Estimate2,col=CoefType,linetype=CoefType),data =VertLineDf)+scale_color_manual(values = c("red","black"),name=element_blank())+scale_linetype_manual(values = c("solid","dashed"),name=element_blank())+facet_wrap( ~CoefNameFactor, nrow = 1, scales = "free")+coord_flip()+AdditionalPltFormat+theme(strip.text = element_text(size = 7))  +theme(
+        strip.text = element_text(
+            margin = margin(t = 0, r = 0, b = 3, l = 0, unit = "pt")))+theme(legend.position="right",legend.margin = margin(b=-0.3,unit = 'cm'))+theme(plot.margin =unit(c(0.4,sideMargins[2],0,sideMargins[1]),"cm")) #+geom_hline(aes(yintercept=ProxyBasedEst),data =NaiveBetaDf,col="red",linetype="dashed") #+scale_y_continuous(expand = c(0,0))+scale_x_discrete(expand=c(0,0)) ##520c61
+  
+  pltCIwidthds <- ggplot()+geom_half_violin(data = SimsTable ,aes(y=`CI Width`,fill=Method),position=position_dodge(-0.5),side = "r",color="black",linewidth=0.01,scale="width",alpha=0.8)+scale_fill_manual(values=c("#619CFF", "#65fe08"))+facet_wrap( ~CoefNameFactor,  nrow = 1, scales = "free")+coord_flip()+AdditionalPltFormat+theme(strip.text.x = element_blank())+theme(legend.position="bottom")+theme(plot.margin =unit(c(0,sideMargins[2],0.5,sideMargins[1]),"cm")) #+ scale_color_manual(values=c("cyan", "#008a00")) #side="r"
+
+  
+  CIWidthLegend <- get_legend(pltCIwidthds)
+  EstimatesLegend <- get_legend(pltEstimates)
+
+  
+  pltAll <- ggarrange(pltEstimates,pltCIwidthds,nrow = 2,ncol = 1,labels = textAdd,font.label = list(size=6.5,face="plain"),vjust = c(5.5,1.2),heights = c(1.2,1),hjust = c(0,0),legend = "none")
+
+
+  
+  return(list(pltAll=pltAll,CIWidthLegend=CIWidthLegend,EstimatesLegend=EstimatesLegend))
 }
-LegList <- PltDataSimsResults2(SimsTable = CurrExpTableRelevel[[i]],CoefNamesInp = CoefsNameMats[[i]],ExpCurr = i)
-print(LegList$CIWidthLegend)
-
-lineLegendNames <- c("  Naive Estimate    ","  True Coefficient   ")
-DfForLeged <- data.frame(1:10,1:10,rep(lineLegendNames,each=5))
-names(DfForLeged) <- c("X","Y","EstimateName")
-DfForLeged$EstimateName <- factor(DfForLeged$EstimateName,levels = lineLegendNames[c(2,1)])
-LinePlotForLegend <- ggplot(data = DfForLeged,mapping = aes(x = X,y = Y,col=EstimateName,linetype=EstimateName))+geom_line()+theme_bw()+ scale_color_manual(values=c("blue", "red"))+theme(legend.title = element_blank())
-
-CombLegends <- ggarrange(get_legend(LinePlotForLegend),geom_blank(),LegList$EstimatesLegend,geom_blank(),nrow = 4)
-
-
-pltExps1to3NoLegend <-  ggarrange(geom_blank(),pltList[[1]],pltList[[2]],pltList[[3]],nrow = 4,labels = c("","(1) AlphaFold with Weighted Sampling","(2) Housing Price Linear Regression","(3) Housing Price Quantile Regression"),heights = c(0.2,1,1,1),font.label = list(size=8.5,face="plain"),vjust = 0.4,hjust=0)
-pltExps4to7NoLegend <-  ggarrange(pltList[[4]],pltList[[5]],pltList[[6]],pltList[[7]],nrow = 4,labels = c("(4) Tree Cover Linear Regression","(5) Tree Cover with Clustered Sampling","(6) Tree Cover Logistic Regression","(7) Census with Stratified Sampling"),font.label = list(size=8.5,face="plain"),vjust = 0.4,hjust=0)
-pltExps4to7Legend   <-  ggarrange(pltExps4to7NoLegend,CombLegends,widths = c(3,1))
-
-pltExps1to7 <- ggarrange(pltExps1to3NoLegend,pltExps4to7Legend,nrow = 2,heights = c(3.2,4))
-
-ggsave(
-   paste0(getwd(),"/Figures/Exps1to7.pdf"),
-  plot = pltExps1to7,height = 8
-)
 ```
 
 
 
+Make Figure 2 (Half violin plots)
+```{r}
+pltList <- list()
+for(i in 1:7){
+  if(i > 3){
+  pltList[[i]] <-  PltDataSimsResults2(SimsTable = CurrExpTableRelevel[[i]],CoefNamesInp = CoefsNameMats[[i]],ExpCurr = i,textAdd = c("\t \t \t \ Estimates","\t \t \t \ CI Widths"),sideMargins = c(1.5,0.2))$pltAll 
+  } else{
+      pltList[[i]] <-  PltDataSimsResults2(SimsTable = CurrExpTableRelevel[[i]],CoefNamesInp = CoefsNameMats[[i]],ExpCurr = i,textAdd = c("\t \t \t \ Estimates","\t \t \t \ CI Widths"),sideMargins = c(1.5,0.7))$pltAll 
+  }
+}
+
+LegList <- PltDataSimsResults2(SimsTable = CurrExpTableRelevel[[i]],CoefNamesInp = CoefsNameMats[[i]],ExpCurr = i)
+print(LegList$CIWidthLegend)
+
+
+CombLegends <- ggarrange(geom_blank(),LegList$EstimatesLegend,nrow = 2,heights = c(1,2))
+
+
+
+titlenames <- c("(1) AlphaFold with Weighted Sampling","(2) Housing Price Linear Regression","(3) Housing Price Quantile Regression","(4) Tree Cover Linear Regression","(5) Tree Cover with Clustered Sampling","(6) Tree Cover Logistic Regression","(7) Census with Stratified Sampling")
+titlenamesTab <- titlenames #paste("\t ",titlenames)
+
+pltExps1to3NoLegend <-  ggarrange(geom_blank(),pltList[[1]],pltList[[2]],pltList[[3]],nrow = 4,labels = c("",titlenamesTab[1],titlenamesTab[2],titlenamesTab[3]),heights = c(0.2,1,1,1),font.label = list(size=8.5,face="plain"),vjust = 0.4,hjust=0)
+pltExps4to7NoLegend <-  ggarrange(pltList[[4]],pltList[[5]],pltList[[6]],pltList[[7]],nrow = 4,labels = c(titlenamesTab[4],titlenamesTab[5],titlenamesTab[6],titlenamesTab[7]),font.label = list(size=8.5,face="plain"),vjust = 0.4,hjust=0)
+pltExps4to7Legend   <-  ggarrange(pltExps4to7NoLegend,CombLegends,widths = c(3,1))
+
+pltExps1to7 <- ggarrange(pltExps1to3NoLegend,pltExps4to7Legend,nrow = 2,heights = c(3.2,4))
+
+
+
+  
+ggsave(
+   paste0(getwd(),"/Figures/Exps1to7HalfViolin.pdf"),
+  plot = pltExps1to7,height = 8
+)
+```

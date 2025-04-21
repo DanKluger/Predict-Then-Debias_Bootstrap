@@ -51,10 +51,11 @@ RandomSubsetThenLabelFixedSizesUniformSampling <- function(FormattedDatInp,mTarg
 ```{r}
 load(paste0(getwd(),"/Datasets/","HousingPriceFormatted.RData"))
 
-source("PTDBootModularized.R")
-source("BootstrapAndCalcEsts.R")
-source("EstBetaGammaCalib_andVCOV.glm.R")
-source("FormatAndFitReg.R")
+SoftwareImplementationPath <- paste0(getwd(),"/PTD_Boot_Implementation/")
+source(paste0(SoftwareImplementationPath,"PTDBootModularized.R"))
+source(paste0(SoftwareImplementationPath,"BootstrapAndCalcEsts.R"))
+source(paste0(SoftwareImplementationPath,"EstBetaGammaCalib_andVCOV.glm.R"))
+source(paste0(SoftwareImplementationPath,"FormatAndFitReg.R"))
 ```
 
 ```{r}
@@ -89,15 +90,16 @@ colnames(PointEsts) <- c("Classical","Naive","PTD")
 
 
 ```{r}
+set.seed(9)
 SimsNightlightCoef <- runSimsRealDataSimplified(nSims = 10000,FormattedDatInp = HousingPriceFormatted,mInp = 40000,nLabelTargInp = 1500,regTypeInp = "linear",outcomeVarName = "HousingPrice",betaTrack="Nightlights")
 
-save(SimsNightlightCoef,file = "TeaserFigSims.RData")
+save(SimsNightlightCoef,file = paste0(getwd(),"/SimulationResults/TeaserFigSims.RData"))
 ```
 
 ```{r}
 load(paste0(getwd(),"/Datasets/","HousingPriceFormatted.RData"))
 
-load("TeaserFigSims.RData")
+load(paste0(getwd(),"/SimulationResults/TeaserFigSims.RData"))
 pltdf <- data.frame(SimsNightlightCoef) %>% pivot_longer(cols = c("Classical","Naive","PTD"),names_to="Approach",values_to="beta_nightlight") 
 pltdf$Approach[pltdf$Approach=="PTD"] <- "PTD (Optimally tuned)"
 
@@ -105,8 +107,8 @@ pltdf$Approach[pltdf$Approach=="PTD"] <- "PTD (Optimally tuned)"
 TrueBeta <- lm(formula = HousingPrice ~ Income+Nightlights+RoadLength,data = HousingPriceFormatted$GoodDat)$coefficients
 
 plot(1,1)
-pltout <- ggplot(data = pltdf,mapping = aes(x = beta_nightlight,fill=Approach))+geom_histogram(position  = "identity",alpha=0.5,bins=60)+theme_bw()+xlab("Estimated nightlight regression coefficient")+theme(panel.grid.minor = element_blank(),panel.grid.major = element_blank())+geom_segment(x = TrueBeta['Nightlights'],xend=TrueBeta['Nightlights'],y=0,yend=Inf,linetype="dashed",size=0.2)+
-  annotate("text", x = 0.102, y = 2000, label = "True coefficient",size=3)+ylab("Count")+ theme(aspect.ratio=0.3)
+pltout <- ggplot(data = pltdf,mapping = aes(x = beta_nightlight,fill=Approach))+geom_histogram(position  = "identity",alpha=0.5,bins=60)+theme_bw()+xlab("Estimated nightlight regression coefficient")+theme(panel.grid.minor = element_blank(),panel.grid.major = element_blank())+geom_segment(x = TrueBeta['Nightlights'],xend=TrueBeta['Nightlights'],y=0,yend=Inf,linetype="dashed",size=0.2,col="black")+
+  annotate("text", x = 0.102, y = 2000, label = "True coefficient",size=3)+ylab("Count")+ theme(aspect.ratio=0.3)+scale_fill_manual(values=c("#619CFF","red","#348a00")) #+scale_fill_manual(values=c("#1B9AAA","#ff0000","#09E85E")) #"#619CFF", "#65fe08")
 
 ggsave(filename = paste0(getwd(),"/Figures/TeaserFig.pdf"),
   plot = pltout,height = 2
@@ -114,5 +116,25 @@ ggsave(filename = paste0(getwd(),"/Figures/TeaserFig.pdf"),
 
 ```
 
+Figures for presentations
+```{r}
+load(paste0(getwd(),"/Datasets/","HousingPriceFormatted.RData"))
 
+load(paste0(getwd(),"/SimulationResults/TeaserFigSims.RData"))
+pltdf <- data.frame(SimsNightlightCoef) %>% pivot_longer(cols = c("Classical","Naive","PTD"),names_to="Approach",values_to="beta_nightlight") 
+pltdf$Approach[pltdf$Approach=="PTD"] <- "PTD (Optimally tuned)"
+
+
+TrueBeta <- lm(formula = HousingPrice ~ Income+Nightlights+RoadLength,data = HousingPriceFormatted$GoodDat)$coefficients
+
+pltout <- ggplot(data = pltdf,mapping = aes(x = beta_nightlight,fill=Approach))+geom_histogram(position  = "identity",alpha=0.5,bins=60)+theme_bw()+xlab("Estimated nightlight regression coefficient")+theme(panel.grid.minor = element_blank(),panel.grid.major = element_blank())+geom_segment(x = TrueBeta['Nightlights'],xend=TrueBeta['Nightlights'],y=0,yend=Inf,linetype="dashed",size=0.2,col="black")+
+  annotate("text", x = 0.102, y = 2000, label = "True coefficient",size=3)+ylab("Count")+ theme(aspect.ratio=0.3)+scale_fill_manual(values=c("#619CFF","red","#348a00")) #+scale_fill_manual(values=c("#1B9AAA","#ff0000","#09E85E")) #"#619CFF", "#65fe08")
+
+pltout
+
+pltout2 <- ggplot(data = pltdf %>% filter(Approach!="PTD (Optimally tuned)"),mapping = aes(x = beta_nightlight,fill=Approach))+geom_histogram(position  = "identity",alpha=0.5,bins=60)+theme_bw()+xlab("Estimated nightlight regression coefficient")+theme(panel.grid.minor = element_blank(),panel.grid.major = element_blank())+geom_segment(x = TrueBeta['Nightlights'],xend=TrueBeta['Nightlights'],y=0,yend=Inf,linetype="dashed",size=0.2,col="black")+
+  annotate("text", x = 0.102, y = 2000, label = "True coefficient",size=3)+ylab("Count")+ theme(aspect.ratio=0.3)+scale_fill_manual(values=c("#619CFF","red"))
+
+pltout2
+```
 
