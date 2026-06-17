@@ -1,0 +1,140 @@
+---
+title: "Untitled"
+author: "Dan Kluger"
+date: "12/23/2024"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+```
+
+Ordinal regression of Education on Sex, Race, Citezenship
+
+```{r}
+Census2018Dat <- read.csv(paste0(dirname(getwd()),"/Datasets/CensusData/CA_census_data_2018.csv"))
+Census2019Dat <- read.csv(paste0(dirname(getwd()),"/Datasets/CensusData/CA_census_data_2019.csv"))
+
+
+
+
+#https://arxiv.org/pdf/2108.04884
+#SCHL is educational attainment
+#MAR is marital status
+#CIT is citezenship
+#RAC1P is race
+#MIG (Mobility status: whether they moved within the past year)
+#AGEP Age (if greater than 16)
+#ESP (employment status of parents if living with parents)
+#DIS with versus without a disability (Could be a good one to predict)
+#COW is type of employer (Could be a good choice for stratification)
+#MIL military service
+# DEAR hear difficulties
+# DEYE is vision difficulties
+# DREM is cognitive difficulties
+#ANC is some type of ancestary not sure
+#Nativity (native versus foreign born)
+
+```
+
+
+
+
+```{r}
+#Turn everything but age and income into categorical variables. NAs gets its own category
+#Drop SOCP and Ancsestry
+FormatCensus <- function(DfInp){
+   DfOut <- DfInp
+  VarNamesOg <- names(DfInp)
+  for(j in 1:length(VarNamesOg)){
+    curVar <- VarNamesOg[j]
+    if(curVar %in% c("AGEP","Income","Year")){
+      #do nothing
+    } else if (curVar %in% c("SOCP","ANC1P")){
+      DfOut[[curVar]] <- NULL
+    } else{
+      NAIdx <- is.na(DfInp[[curVar]])
+      currVarAsChar <- as.character(DfInp[[curVar]])
+      currVarAsChar[NAIdx] <- "n/a"
+      DfOut[[curVar]] <- as.factor(currVarAsChar)
+    }
+    
+  }
+  return(DfOut)
+}
+```
+
+
+
+```{r}
+#Formatting 2018 and 2019 census data from California
+CensusBothYears <- rbind(Census2018Dat %>% mutate(Year=2018),Census2019Dat %>% mutate(Year=2019))
+FormattedCensus <-  FormatCensus(CensusBothYears) %>% filter(!is.na(Income))
+FormattedCensus2018 <- FormattedCensus[FormattedCensus$Year==2018,] %>% mutate(Year=NULL)
+FormattedCensus2019 <- FormattedCensus[FormattedCensus$Year==2019,] %>% mutate(Year=NULL)
+```
+
+Predicting Disability
+```{r}
+set.seed(8)
+library(ranger)
+
+rf2018FitDisability <- ranger(DIS~.,data = FormattedCensus2018,num.trees = 500)
+Preds2019Disability <- predict(object= rf2018FitDisability,data = FormattedCensus2019 %>% mutate(DIS=NULL))$predictions
+
+#Confusion matrix and overall accuracy of disability predictions
+table(Preds2019Disability,FormattedCensus2019$DIS)
+mean(Preds2019Disability==FormattedCensus2019$DIS)
+idx15to34 <- (FormattedCensus2019$AGEP>14) & (FormattedCensus2019$AGEP<35)
+mean(Preds2019Disability[idx15to34]==FormattedCensus2019$DIS[idx15to34])
+
+
+```
+
+
+```{r}
+FormatEducation <- function(EducationVecRaw){
+  EducVecNumeric <- as.numeric(as.character(EducationVecRaw))
+  EducationVecCategorical <- rep(NA,length(EducVecNumeric))
+  EducationVecCategorical[EducVecNumeric <= 15] <-  "No High School Diploma"
+  EducationVecCategorical[EducVecNumeric %in% c(16,17,18,19)] <-  "High School Diploma (or GED or alternative)"
+  EducationVecCategorical[EducVecNumeric == 20] <-  "Associate's Degree"
+  EducationVecCategorical[EducVecNumeric == 21] <-  "Bachelor's Degree"
+  EducationVecCategorical[EducVecNumeric == 22] <-  "Master's Degree"
+  EducationVecCategorical[EducVecNumeric %in% c(23,24)] <-  "Professional or doctoral degree"
+
+
+  return(EducationVecCategorical)
+
+
+}
+
+```
+
+Formatting dataset for experiments
+```{r}
+#Changing non disability from 2 to 0 (disability remains at 1)
+DisabilityPreds0_1 <- 2-as.numeric(Preds2019Disability)
+ActualDisability0_1 <- 2-as.numeric(FormattedCensus2019$DIS)
+Nativity0_1 <- 2-as.numeric(FormattedCensus2019$NATIVITY) #(native (US born) is 1)
+table(DisabilityPreds0_1,ActualDisability0_1)
+EducationVecCategorical <- FormatEducation(EducationVecRaw = FormattedCensus2019$SCHL)
+EducationVecOrdinal <- factor(x = EducationVecCategorical,levels = c("No High School Diploma", "High School Diploma (or GED or alternative)","Associate's Degree", "Bachelor's Degree", "Master's Degree",  "Professional or doctoral degree"))
+
+GoodDatAllAge <- data.frame(EducationVecOrdinal,Nativity0_1,FormattedCensus2019$AGEP,ActualDisability0_1)
+ProxyDatAllAge <- data.frame(EducationVecOrdinal,Nativity0_1,FormattedCensus2019$AGEP,DisabilityPreds0_1)
+names(GoodDatAllAge) <- c("Education","Nativity","Age","Disability")
+names(ProxyDatAllAge) <- c("Education","Nativity","Age","Disability")
+
+#Filtering to ages 15-34 
+idkKeep <- (FormattedCensus2019$AGEP>14) & (FormattedCensus2019$AGEP<35)
+GoodDat <- GoodDatAllAge[idkKeep,]
+ProxyDat <- ProxyDatAllAge[idkKeep,]
+table(ProxyDat$Disability,GoodDat$Disability)
+
+```
+
+```{r}
+EducationDatFormatted <- list(GoodDat=GoodDat,ProxyDat=ProxyDat,PiLabelUnsc=NULL,ClusterIDs=NULL)
+save(EducationDatFormatted,file = paste0(dirname(getwd()),"/Datasets/CensusStratEducationFormatted.RData"))
+```

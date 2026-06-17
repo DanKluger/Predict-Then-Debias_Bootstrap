@@ -1,0 +1,790 @@
+---
+title: "Untitled"
+author: "Dan Kluger"
+date: "10/21/2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Figure for increasing error
+
+```{r}
+#Loading Results
+resultsFilePath <- paste0(getwd(),"/Results/")
+load(paste0(resultsFilePath,"IncreaseError/ExrapolateInterpolateErrorQuickBoot.RData"))
+load(paste0(resultsFilePath,"IncreaseError/IncreaseNoiseSimsQuickBoot.RData"))
+load(paste0(dirname(getwd()),"/Datasets/","HousingPriceFormatted.RData"))
+
+```
+
+
+```{r}
+#Formatting and normalizing results
+library(dplyr)
+stackDf <- function(ResultsInp){
+  ResultsOutMat <- ResultsInp[[1]]
+  for(i in 2:length(ResultsInp)){
+    ResultsOutMat <- rbind(ResultsOutMat,ResultsInp[[i]])
+  }
+  return(ResultsOutMat)
+}
+addNoiseResults <- stackDf(ResultsInp = addNightlightNoiseSims)
+ExtrapErrorResults <- stackDf(ResultsInp = ModifyNightlightProxyErrorInterpAndExtrap)
+
+ResultsComb <- rbind(addNoiseResults %>% mutate(ErrorType=rep("Noise",nrow(addNoiseResults))),
+                     ExtrapErrorResults %>% mutate(ErrorType=rep("Extrapolation",nrow(ExtrapErrorResults))))
+
+#Normalize by classical mean width
+CIsWidthsClassicalAvg <- ResultsComb %>% filter(Method=="Classical") %>% group_by(Coefficient) %>%  summarise(ClassicalMean=mean(CIWidths_mean))
+
+for(i in 1:nrow(CIsWidthsClassicalAvg)){
+  idxCurrCoeff <- which(ResultsComb$Coefficient==CIsWidthsClassicalAvg$Coefficient[i])
+  currMeanClass <- CIsWidthsClassicalAvg$ClassicalMean[i]
+  ResultsComb$CIWidths_mean[idxCurrCoeff] <- ResultsComb$CIWidths_mean[idxCurrCoeff]/currMeanClass
+  ResultsComb$CIWidths_sd[idxCurrCoeff] <- ResultsComb$CIWidths_sd[idxCurrCoeff]/currMeanClass
+}
+
+#Making interpolated error negative for clarity
+ResultsComb$ErrorParameter[ResultsComb$ErrorType=="Extrapolation"] <- ResultsComb$ErrorParameter[ResultsComb$ErrorType=="Extrapolation"]-1
+
+
+ResultsComb$Coefficient <- factor(ResultsComb$Coefficient,levels = c("Intercept", "Income", "Nightlights", "Road Length"))
+```
+
+
+
+
+```{r}
+library(ggplot2)
+library(ggpubr)
+library(patchwork)
+
+NSim <- 2000
+alphaTarg <- 0.1
+
+color_scale_ManualTuning <- scale_color_manual(values = c("#619CFF","#c76e00","#65fe08","#348a00"))
+pointShapeManual <- scale_shape_manual(values = c(16,15,17,18))
+ptSizeManual <- scale_size_manual(values = c(0.5,0.5,0.5,3))
+
+pltTheme <- theme(axis.text.y = element_text(size=8),panel.grid.major.x = element_blank(),panel.grid.major.y = element_line(size=0.2),panel.grid.minor = element_blank(),legend.text = element_text(size=8))
+#Make Figure 3
+
+
+p1 <- ggplot(ResultsComb, aes(x = ErrorParameter, y = CIWidths_mean, color = Method,shape=Method)) +
+  geom_point( size = 1.3) +
+  geom_errorbar(
+    aes(ymin = CIWidths_mean - CIWidths_sd/sqrt(NSim), ymax = CIWidths_mean + CIWidths_sd/sqrt(NSim)),
+    width = 0.1,alpha=1
+  ) +
+  facet_grid(ErrorType ~ Coefficient,switch="y") +
+  labs(x = "", y = "Normalized Mean CI Width") +
+  theme_bw() +
+  theme(legend.position = "none")+pointShapeManual+color_scale_ManualTuning+ptSizeManual+pltTheme#+ylim(c(0.2,1.6))
+
+
+CoverageRange <- qbinom(p = c(0.01/2,1-0.01/2),size = NSim,prob = 1-alphaTarg)/NSim
+p2 <- ggplot(ResultsComb, aes(x = ErrorParameter, y = Coverage, color = Method,shape=Method)) +
+  geom_point(position = position_dodge(width = 0), size = 1.3)  +
+  facet_grid(ErrorType ~ Coefficient,switch="y") +
+  labs(x = "Degradation Level of Nightlight Proxy", y = "Empirical Coverage") +
+  theme_bw() +
+  theme(legend.position = "none",strip.text.x = element_blank())+pointShapeManual+color_scale_ManualTuning+ptSizeManual+pltTheme+geom_hline(yintercept = CoverageRange,col="black",linetype=3)+ylim(c(0.8,1))
+#ggarrange(p1,p2,nrow = 2,common.legend = T,legend = "bottom")
+FigOut <- (p1 / p2) +  theme(legend.position = "bottom")
+ggsave(filename = paste0(getwd(),"/Figures/InsertError.pdf"),plot = FigOut,width = 8.5,height = 6)
+```
+```{r}
+rm(list = setdiff(ls(),c("resultsFilePath")))
+```
+
+
+Dropping n figures
+
+```{r}
+#Loading results and tracking number of simulations using in each setting
+library(dplyr)
+resultsFilePath <- paste0(getwd(),"/Results/")
+
+nSimsVec <- rep(NA,5)
+names(nSimsVec) <- c("HousingPriceLinearReg","HousingPriceQuantileReg","TreecoverLinearReg","ForestCoverLogisticReg","CensusStratifiedReg")
+load(paste0(resultsFilePath,"LowerNumLabels/HousingPriceSimLessLabels.RData"))
+nSimsVec['HousingPriceLinearReg'] <- nSimsPerSetting
+rm(nSimsPerSetting)
+load(paste0(resultsFilePath,"LowerNumLabels/HousingPriceQuantileRegSimLessLabels.RData"))
+nSimsVec['HousingPriceQuantileReg'] <- nSimsPerSetting
+rm(nSimsPerSetting)
+load(paste0(resultsFilePath,"LowerNumLabels/TreecoverSimLessLabels.RData"))
+nSimsVec['TreecoverLinearReg'] <- nSimsPerSetting
+rm(nSimsPerSetting)
+
+load(paste0(resultsFilePath,"LowerNumLabels/ForestLogRegSimLessLabels.RData"))
+nSimsVec['ForestCoverLogisticReg'] <- nSimsPerSetting
+rm(nSimsPerSetting)
+
+load(paste0(resultsFilePath,"LowerNumLabels/CensusIncomeRegSimLessLabels.RData"))
+nSimsVec['CensusStratifiedReg'] <- nSimsPerSetting
+rm(nSimsPerSetting)
+
+
+print(nSimsVec)
+
+
+```
+
+
+```{r}
+stackDfAndNorm <- function(ResultsInp,ExpNumberInp){
+  ResultsMatStack <- ResultsInp[[1]]
+  for(i in 2:length(ResultsInp)){
+    ResultsMatStack <- rbind(ResultsMatStack,ResultsInp[[i]])
+  }
+  
+  
+  
+  #Normalize by classical mean width
+  CoefNames <- unique(ResultsMatStack$Coefficient)
+  nVec <- unique(ResultsMatStack$n)
+  ResultsOutMat <- ResultsMatStack
+  ResultsOutMat$ExpNumber <- ExpNumberInp
+
+  for(i in 1:length(CoefNames)){
+    for(j in 1:length(nVec)){
+      idxCurrComb <- (ResultsMatStack$Coefficient==CoefNames[i]) & (ResultsMatStack$n==nVec[j])
+      CurrMeanClass <- ResultsMatStack$CIWidths_mean[which(idxCurrComb & ResultsMatStack$Method=="Classical")]
+      ResultsOutMat$CIWidths_mean[idxCurrComb] <- ResultsMatStack$CIWidths_mean[idxCurrComb]/CurrMeanClass
+      ResultsOutMat$CIWidths_sd[idxCurrComb] <- ResultsMatStack$CIWidths_sd[idxCurrComb]/CurrMeanClass
+    }
+  }
+  
+  #Anything where corresponding mean CI widths > 5 * 10^8 deemed too heavily skewed by perfect separation blowups, so CI widths in such cases not plotted
+ ResultsOutMat$CIWidths_mean[ResultsMatStack$CIWidths_mean > (5 * 10^8)] <- NA #Won't plot mean CI widths in these cases
+  
+
+
+
+  
+  return(ResultsOutMat)
+  
+  
+}
+HousingPriceResults <- stackDfAndNorm(ResultsInp = SimsHousingPriceReg,ExpNumberInp = 2)
+HousingPriceQuantileResults <- stackDfAndNorm(ResultsInp = SimsHousingPriceQuantileReg,ExpNumberInp = 3)
+TreecoverResults <- stackDfAndNorm(ResultsInp = SimsTreecoverReg,ExpNumberInp = 4)
+ForestResults <- stackDfAndNorm(ResultsInp = simsLowerLabelsForestLogReg,ExpNumberInp = 6)
+CensusResults <- stackDfAndNorm(ResultsInp = CensusIncomeReg,ExpNumberInp = 7)
+
+
+ResultsAllExps <- rbind(HousingPriceResults,HousingPriceQuantileResults,TreecoverResults,ForestResults,CensusResults)
+
+ResultsAllExpsNoUntuned <- ResultsAllExps %>% filter(!(Method %in% c("PTD (No Tuning)","PTD Speedup (No Tuning)")))
+table(ResultsAllExps$Method)
+table(ResultsAllExpsNoUntuned$Method)
+
+ResultsAllExpsNoUntuned$Coefficient[ResultsAllExpsNoUntuned$Coefficient=="RoadLength"] <- "Road Length"
+ResultsAllExpsNoUntuned$Coefficient <- factor(ResultsAllExpsNoUntuned$Coefficient,levels = c("Intercept","Income","Nightlights","Road Length","Elevation","Population","Age","Disability"))
+
+ResultsAllExpsNoUntuned$Method[ResultsAllExpsNoUntuned$Method=="PTD (Optimal Diagonal Tuning)"] <- "PTD (Diagonal)"
+ResultsAllExpsNoUntuned$Method[ResultsAllExpsNoUntuned$Method=="PTD (Optimal Tuning)"] <- "PTD (Optimal)"
+ResultsAllExpsNoUntuned$Method[ResultsAllExpsNoUntuned$Method=="PTD Speedup (Optimal Diagonal Tuning)"] <- "PTD Speedup (Diagonal)"
+ResultsAllExpsNoUntuned$Method[ResultsAllExpsNoUntuned$Method=="PTD Speedup (Optimal Tuning)"] <- "PTD Speedup (Optimal)"
+
+ResultsAllExpsNoUntuned$ExpTitle <- rep("NA",nrow(ResultsAllExpsNoUntuned))
+ResultsAllExpsNoUntuned$ExpTitle[ResultsAllExpsNoUntuned$ExpNumber==2] <- c("(2) Linear Reg.")
+ResultsAllExpsNoUntuned$ExpTitle[ResultsAllExpsNoUntuned$ExpNumber==3] <- c("(3) Quantile Reg.")
+ResultsAllExpsNoUntuned$ExpTitle[ResultsAllExpsNoUntuned$ExpNumber==4] <- c("(4) Linear Reg.")
+ResultsAllExpsNoUntuned$ExpTitle[ResultsAllExpsNoUntuned$ExpNumber==6] <- c("(6) Logistic Reg.")
+ResultsAllExpsNoUntuned$ExpTitle[ResultsAllExpsNoUntuned$ExpNumber==7] <- c("(7) Linear Reg.")
+
+
+
+```
+
+
+Coverage Only Plot
+
+```{r}
+library(ggplot2)
+library(patchwork)
+library(cowplot)
+
+colorScale <- c("#619CFF", "#2A9D2A", "#E03030", "#2A9D2A", "#E03030")
+shapeScale <- c(16, 5, 5, 3, 3)
+make_plot <- function(data,NSim=2000,alphaTarg=0.1,colorVecInp,ShapeScaleInp) {
+  hlines <- qbinom(p = c(0.01/2, 1 - 0.01/2), size = NSim, prob = 1 - alphaTarg) / NSim
+  ggplot(data, aes(x = n, y = Coverage, 
+                    color = Method, 
+                    shape = Method)) +
+    geom_point(size = 2) + ylim(c(0.8,1))+
+    geom_hline(yintercept = hlines,col="black",linetype=3) +
+    scale_color_manual(values = colorVecInp,
+                       drop = FALSE) +
+    scale_shape_manual(values = shapeScale, drop = FALSE) +
+    facet_grid(ExpTitle ~ Coefficient, switch = "y") +
+    labs(x = NULL, y = NULL) +
+    theme_bw(base_size = 12) +
+    theme(
+      strip.background = element_rect(fill = "grey90"),
+      strip.placement = "outside",
+      strip.text.y.left = element_text(size = 9),
+      panel.grid.minor = element_blank(),panel.grid.major.x = element_blank(),
+      legend.position = "none"
+    )
+}
+df_top <- subset(ResultsAllExpsNoUntuned, ExpNumber %in% c(2, 3))
+df_bot <- subset(ResultsAllExpsNoUntuned, ExpNumber %in% c(4, 6))
+df_bot2 <- subset(ResultsAllExpsNoUntuned, ExpNumber == 7)
+
+p_top <- make_plot(df_top,colorVecInp = colorScale,ShapeScaleInp = shapeScale,NSim = mean(nSimsVec))
+p_bot <- make_plot(df_bot,colorVecInp = colorScale,ShapeScaleInp = shapeScale,NSim = mean(nSimsVec))
+p_bot2 <- make_plot(df_bot2,colorVecInp = colorScale,ShapeScaleInp = shapeScale,NSim = mean(nSimsVec))
+
+# Extract legend
+p_legend <- ggplot(ResultsAllExpsNoUntuned, aes(x = n, y = Coverage, 
+                                                 color = Method, 
+                                                 shape = Method)) +
+  geom_point() +
+  scale_color_manual(values = colorScale) +
+  scale_shape_manual(values = shapeScale) +
+  labs(color = "Method", shape = "Method") +
+  theme(legend.position = "right",legend.text = element_text(size=7))+
+    theme_bw()
+legend <- get_legend(p_legend)
+# Bottom row: 3/4 plot, 1/4 legend
+bottom_rowNoLegend <- (p_bot / p_bot2) + plot_layout(heights = c(2,1))
+bottom_row <- ( bottom_rowNoLegend  | wrap_elements(legend)) + plot_layout(widths = c(3.2, 1))
+# Stack
+stacked <- p_top / bottom_row + plot_layout(heights = c(2,3.5))
+
+# Shared y title — use wrap_elements with a clip="off" panel
+y_title <- wrap_elements(panel = grid::textGrob(
+  "Empirical Coverage", rot = 90,
+  gp = grid::gpar(fontsize = 11),
+  vp = grid::viewport(clip = "off")
+))
+
+x_title <- wrap_elements(panel = grid::textGrob(
+  "Expected Number of Complete Samples",
+  gp = grid::gpar(fontsize = 11),
+  vp = grid::viewport(clip = "off")
+))
+
+final <- y_title + stacked + plot_layout(widths = c(1.5, 40))
+final <- final / x_title + plot_layout(heights = c(40, 1.5))
+
+# Add some breathing room around the whole figure
+#final <- final & theme(plot.margin = margin(2, 2, 2, 2))
+
+ggsave(filename = paste0(getwd(),"/Figures/Reduce_n.pdf"),
+       plot = final, width = 8.5, height = 8)
+```
+
+
+CI Width Only Plot
+
+```{r}
+library(ggplot2)
+library(patchwork)
+library(cowplot)
+
+colorScale <- c("#619CFF", "#2A9D2A", "#E03030", "#2A9D2A", "#E03030")
+shapeScale <- c(16, 5, 5, 3, 3)
+make_plot <- function(data,colorVecInp,ShapeScaleInp) {
+  ggplot(data, aes(x = n, y = CIWidths_mean, 
+                    color = Method, 
+                    shape = Method)) +
+    geom_point(size = 2) +
+    scale_color_manual(values = colorVecInp,
+                       drop = FALSE) +
+    scale_shape_manual(values = shapeScale, drop = FALSE) +
+    facet_grid(ExpTitle ~ Coefficient,scales = "free_y", switch = "y") +
+    labs(x = NULL, y = NULL) +
+    theme_bw(base_size = 12) +
+    theme(
+      strip.background = element_rect(fill = "grey90"),
+      strip.placement = "outside",
+      strip.text.y.left = element_text(size=9),
+      panel.grid.minor = element_blank(),panel.grid.major.x = element_blank(),
+      legend.position = "none"
+    )
+}
+df_top <- subset(ResultsAllExpsNoUntuned, ExpNumber %in% c(2, 3))
+df_bot <- subset(ResultsAllExpsNoUntuned, ExpNumber %in% c(4, 6))
+df_bot2 <- subset(ResultsAllExpsNoUntuned, ExpNumber ==7)
+
+p_top <- make_plot(df_top,colorVecInp = colorScale,ShapeScaleInp = shapeScale)
+p_bot <- make_plot(df_bot,colorVecInp = colorScale,ShapeScaleInp = shapeScale)
+p_bot2 <- make_plot(df_bot2,colorVecInp = colorScale,ShapeScaleInp = shapeScale)
+
+# Extract legend
+p_legend <- ggplot(ResultsAllExpsNoUntuned, aes(x = n, y = CIWidths_mean, 
+                                                 color = Method, 
+                                                 shape = Method)) +
+  geom_point() +
+  scale_color_manual(values = colorScale) +
+  scale_shape_manual(values = shapeScale) +
+  labs(color = "Method", shape = "Method") +
+  theme(legend.position = "right",legend.text = element_text(size=7))+
+    theme_bw()
+legend <- get_legend(p_legend)
+# Bottom row: 3/4 plot, 1/4 legend
+bottom_rowNoLegend <- (p_bot / p_bot2) + plot_layout(heights = c(2,1))
+bottom_row <- ( bottom_rowNoLegend  | wrap_elements(legend)) + plot_layout(widths = c(3.2, 1))
+# Stack
+stacked <- p_top / bottom_row + plot_layout(heights = c(2,3.5))
+
+# Shared y title — use wrap_elements with a clip="off" panel
+y_title <- wrap_elements(panel = grid::textGrob(
+  "Normalized Mean CI Width", rot = 90,
+  gp = grid::gpar(fontsize = 11),
+  vp = grid::viewport(clip = "off")
+))
+
+x_title <- wrap_elements(panel = grid::textGrob(
+  "Expected Number of Complete Samples",
+  gp = grid::gpar(fontsize = 11),
+  vp = grid::viewport(clip = "off")
+))
+
+final <- y_title + stacked + plot_layout(widths = c(1.5, 40))
+final <- final / x_title + plot_layout(heights = c(40, 1.5))
+
+# Add some breathing room around the whole figure
+#final <- final & theme(plot.margin = margin(2, 2, 2, 2))
+
+ggsave(filename = paste0(getwd(),"/Figures/Reduce_n_meanCI_width.pdf"),
+       plot = final, width = 8.5, height = 8)
+```
+
+
+
+
+Comparison to multiple imputation figure
+
+```{r}
+rm(list = setdiff(ls(),c("resultsFilePath")))
+```
+
+
+
+```{r}
+ nSimsPerSettingVec <- rep(NA,5)
+resultsFilePath <- paste0(getwd(),"/Results/")
+load(paste0(resultsFilePath,"MultipleImputationComp/ExponentiateProxyHousingPriceWithMI.RData"))
+nSimsPerSettingVec[1] <- nSimsPerSetting
+rm(nSimsPerSetting)
+load(paste0(resultsFilePath,"MultipleImputationComp/ExponentiateProxyHousingPriceQuantRegWithMI.RData"))
+nSimsPerSettingVec[2] <- nSimsPerSetting
+rm(nSimsPerSetting)
+load(paste0(resultsFilePath,"MultipleImputationComp/ExponentiateProxyTreecoverWithMI.RData"))
+nSimsPerSettingVec[3] <- nSimsPerSetting
+rm(nSimsPerSetting)
+load(paste0(resultsFilePath,"MultipleImputationComp/ExponentiateProxyTreecoverClusteredWithMI.RData"))
+nSimsPerSettingVec[4] <- nSimsPerSetting
+rm(nSimsPerSetting)
+load(paste0(resultsFilePath,"MultipleImputationComp/ExponentiateProxyForestLogRegWithMI.RData"))
+nSimsPerSettingVec[5] <- nSimsPerSetting
+rm(nSimsPerSetting)
+print(nSimsPerSettingVec)
+if(min(nSimsPerSettingVec)==max(nSimsPerSettingVec)){nSimsPerSetting <- mean(nSimsPerSettingVec)}
+```
+
+```{r}
+library(dplyr)
+stackDfAndNorm <- function(ResultsInp){
+  ResultsMatStack <- ResultsInp[[1]]
+  for(i in 2:length(ResultsInp)){
+    ResultsMatStack <- rbind(ResultsMatStack,ResultsInp[[i]])
+  }
+  
+  
+  #Normalize by classical mean width
+CIsWidthsClassicalAvg <- ResultsMatStack %>% filter(Method=="Classical") %>% group_by(Coefficient) %>%  summarise(ClassicalMean=mean(CIWidths_mean))
+ResultsOutMat <- ResultsMatStack
+for(i in 1:nrow(CIsWidthsClassicalAvg)){
+  idxCurrCoeff <- which(ResultsMatStack$Coefficient==CIsWidthsClassicalAvg$Coefficient[i])
+  currMeanClass <- CIsWidthsClassicalAvg$ClassicalMean[i]
+  ResultsOutMat$CIWidths_mean[idxCurrCoeff] <- ResultsMatStack$CIWidths_mean[idxCurrCoeff]/currMeanClass
+  ResultsOutMat$CIWidths_sd[idxCurrCoeff] <- ResultsMatStack$CIWidths_sd[idxCurrCoeff]/currMeanClass
+  
+  
+}
+  ResultsOutMat$Method[ResultsMatStack$Method=="PTD (Optimal Diagonal Tuning)"] <- "PTD (Diagonal Tuning)"
+  return(ResultsOutMat)
+  
+  
+}
+HousingPriceResults <- stackDfAndNorm(ResultsInp = SimsHousingPrice)
+HousingPriceQuantRegResults <- stackDfAndNorm(ResultsInp = SimsHousingPriceQuantReg)
+TreecoverResults <- stackDfAndNorm(ResultsInp = SimsTreecover)
+TreecoverClusteredResults <- stackDfAndNorm(ResultsInp = SimsTreecoverClustered)
+ForestCoverResults <- stackDfAndNorm(ResultsInp = SimsForestCoverLogReg)
+
+# Add an experiment label column to each dataset
+HousingPriceResults$Experiment <- "(2) Linear Reg."
+HousingPriceQuantRegResults$Experiment <- "(3) Quantile Reg."
+TreecoverResults$Experiment <- "(4) Linear Reg."
+TreecoverClusteredResults$Experiment <- "(5) Linear Reg."
+ForestCoverResults$Experiment <- "(6) Logistic Reg."
+
+HousingPriceResults$Coefficient[HousingPriceResults$Coefficient=="RoadLength"] <- "Road Length*"
+HousingPriceResults$Coefficient <- factor(HousingPriceResults$Coefficient,levels = c("Intercept","Income","Nightlights","Road Length*"))
+
+HousingPriceQuantRegResults$Coefficient[HousingPriceQuantRegResults$Coefficient=="RoadLength"] <- "Road Length*"
+HousingPriceQuantRegResults$Coefficient <- factor(HousingPriceQuantRegResults$Coefficient,levels = c("Intercept","Income","Nightlights","Road Length*"))
+
+
+TreecoverResults$Coefficient[TreecoverResults$Coefficient=="Population"] <- "Population*"
+TreecoverResults$Coefficient <- factor(TreecoverResults$Coefficient,levels = c("Intercept","Elevation","Population*"))
+
+TreecoverClusteredResults$Coefficient[TreecoverClusteredResults$Coefficient=="Population"] <- "Population*"
+TreecoverClusteredResults$Coefficient <- factor(TreecoverClusteredResults$Coefficient,levels = c("Intercept","Elevation","Population*"))
+
+ForestCoverResults$Coefficient[ForestCoverResults$Coefficient=="Population"] <- "Population*"
+ForestCoverResults$Coefficient <- factor(ForestCoverResults$Coefficient,levels = c("Intercept","Elevation","Population*"))
+```
+
+
+```{r}
+library(ggplot2)
+library(patchwork)
+library(cowplot)
+
+color_scale_vals <- c("#619CFF","#A31515","#65fe08")
+shape_vals <- c(16,15,17)
+
+# --- Coverage figure ---
+
+make_coverage_plot <- function(data, exp_label, NSim = nSimsPerSetting, alphaTarg = 0.1) {
+  CoverageRange <- qbinom(p = c(0.01/2, 1 - 0.01/2), size = NSim, prob = 1 - alphaTarg) / NSim
+  ggplot(data, aes(x = ErrorParam, y = Coverage, color = Method, shape = Method)) +
+    geom_point(size = 1.5) +
+    geom_hline(yintercept = CoverageRange, col = "black", linetype = 3) +
+    scale_color_manual(values = color_scale_vals, drop = FALSE) +
+    scale_shape_manual(values = shape_vals, drop = FALSE) +
+    facet_grid(rows = vars(!!sym(exp_label)), cols = vars(Coefficient), switch = "y",scales = "free_y") +
+    labs(x = NULL, y = NULL) +
+    theme_bw(base_size = 12) +
+    theme(
+      strip.background = element_rect(fill = "grey90"),
+      strip.placement = "outside",
+  #    strip.text.y.left = element_text(angle = 0, face = "bold"),
+      panel.grid.minor = element_blank(),
+      panel.grid.major.x = element_blank(),
+      panel.grid.major.y = element_line(size = 0.2),
+      legend.position = "none",
+      axis.text.y = element_text(size = 8)
+    ) 
+}
+
+
+
+# Housing Price has 4 coefficients (top row)
+p_cov_top <- make_coverage_plot(rbind(HousingPriceResults,HousingPriceQuantRegResults), "Experiment")
+
+# Treecover and Forest Cover have 3 coefficients each (bottom rows)
+df_cov_bot <- rbind(TreecoverResults,TreecoverClusteredResults, ForestCoverResults)
+p_cov_bot <- make_coverage_plot(df_cov_bot, "Experiment")
+
+# Extract legend
+p_legend_cov <- ggplot(HousingPriceResults, aes(x = ErrorParam, y = Coverage,
+                                                  color = Method, shape = Method)) +
+  geom_point() +
+  scale_color_manual(values = color_scale_vals) +
+  scale_shape_manual(values = shape_vals) +
+  labs(color = "Method", shape = "Method") +
+  theme_bw() +
+  theme(legend.position = "right", legend.text = element_text(size = 8))
+
+legend_cov <- get_legend(p_legend_cov)
+
+# Bottom: 3/4 plot, 1/4 legend
+bottom_cov <- (p_cov_bot | wrap_elements(legend_cov)) + plot_layout(widths = c(3.25, 1))
+
+stacked_cov <- p_cov_top / bottom_cov + plot_layout(heights = c(2, 3))
+
+y_title_cov <- wrap_elements(panel = grid::textGrob(
+  "Empirical Coverage", rot = 90,
+  gp = grid::gpar(fontsize = 11),
+  vp = grid::viewport(clip = "off")
+))
+x_title_cov <- wrap_elements(panel = grid::textGrob(
+  "Exponent Used to Degrade Proxy",
+  gp = grid::gpar(fontsize = 11),
+  vp = grid::viewport(clip = "off")
+))
+
+final_cov <- y_title_cov + stacked_cov + plot_layout(widths = c(1.5, 40))
+final_cov <- final_cov / x_title_cov + plot_layout(heights = c(40, 1.5))
+#final_cov <- final_cov & theme(plot.margin = margin(2, 2, 2, 2))
+
+ggsave(filename = paste0(getwd(), "/Figures/MultipleImputationCoverage.pdf"),
+       plot = final_cov, width = 8.5, height = 7.5)
+
+
+# --- CI Width figure ---
+
+make_width_plot <- function(data, exp_label, NSim = nSimsPerSetting) {
+  rangeX <- max(data$ErrorParam) - min(data$ErrorParam)
+  ggplot(data, aes(x = ErrorParam, y = CIWidths_mean, color = Method, shape = Method)) +
+    geom_point(size = 1.5) +
+    geom_errorbar(
+      aes(ymin = CIWidths_mean - CIWidths_sd / sqrt(NSim),
+          ymax = CIWidths_mean + CIWidths_sd / sqrt(NSim)),
+      width = rangeX / 30, alpha = 1
+    ) +
+    scale_color_manual(values = color_scale_vals, drop = FALSE) +
+    scale_shape_manual(values = shape_vals, drop = FALSE) +
+    facet_grid(rows = vars(!!sym(exp_label)), cols = vars(Coefficient), switch = "y",scales = "free_y") +
+    labs(x = NULL, y = NULL) +
+    theme_bw(base_size = 12) +
+    theme(
+      strip.background = element_rect(fill = "grey90"),
+      strip.placement = "outside",
+     # strip.text.y.left = element_text(angle = 0, face = "bold"),
+      panel.grid.minor = element_blank(),
+      panel.grid.major.x = element_blank(),
+      panel.grid.major.y = element_line(size = 0.2),
+      legend.position = "none",
+      axis.text.y = element_text(size = 8)
+    )
+}
+
+p_wid_top <- make_width_plot(rbind(HousingPriceResults,HousingPriceQuantRegResults), "Experiment")
+
+df_wid_bot <- rbind(TreecoverResults,TreecoverClusteredResults, ForestCoverResults)
+p_wid_bot <- make_width_plot(df_wid_bot, "Experiment")
+
+legend_wid <- get_legend(p_legend_cov)  # same legend
+
+bottom_wid <- (p_wid_bot | wrap_elements(legend_wid)) + plot_layout(widths = c(3.25, 1))
+
+stacked_wid <- p_wid_top / bottom_wid + plot_layout(heights = c(2, 3))
+
+y_title_wid <- wrap_elements(panel = grid::textGrob(
+  "Normalized Mean Confidence Interval Width", rot = 90,
+  gp = grid::gpar(fontsize = 11),
+  vp = grid::viewport(clip = "off")
+))
+x_title_wid <- wrap_elements(panel = grid::textGrob(
+  "Exponent Used to Degrade Proxy",
+  gp = grid::gpar(fontsize = 11),
+  vp = grid::viewport(clip = "off")
+))
+
+final_wid <- y_title_wid + stacked_wid + plot_layout(widths = c(1.5, 40))
+final_wid <- final_wid / x_title_wid + plot_layout(heights = c(40, 1.5))
+#final_wid <- final_wid & theme(plot.margin = margin(2, 2, 2, 2))
+
+ggsave(filename = paste0(getwd(), "/Figures/MultipleImputationCIWidth.pdf"),
+       plot = final_wid, width = 8.5, height = 7.5)
+```
+
+
+```{r}
+rm(list = setdiff(ls(),c("resultsFilePath")))
+```
+
+
+Make comparison to PPI++ figure
+
+
+
+```{r}
+ nSimsPerSettingVec <- rep(NA,3)
+resultsFilePath <- paste0(getwd(),"/Results/")
+load(paste0(resultsFilePath,"PPI++Comp/IncreaseTranslationErrorPPI++HousingPriceQuickBoot.RData"))
+nSimsPerSettingVec[1] <- nSimsPerSetting
+rm(nSimsPerSetting)
+load(paste0(resultsFilePath,"PPI++Comp/IncreaseTranslationErrorPPI++TreecoverQuickBoot.RData"))
+nSimsPerSettingVec[2] <- nSimsPerSetting
+rm(nSimsPerSetting)
+load(paste0(resultsFilePath,"PPI++Comp/IncreaseTranslationErrorPPI++ForestLogRegQuickBoot.RData"))
+nSimsPerSettingVec[3] <- nSimsPerSetting
+rm(nSimsPerSetting)
+print(nSimsPerSettingVec)
+if(min(nSimsPerSettingVec)==max(nSimsPerSettingVec)){nSimsPerSetting <- mean(nSimsPerSettingVec)}
+```
+
+
+
+
+```{r}
+stackDfAndNorm <- function(ResultsInp){
+  ResultsMatStack <- ResultsInp[[1]]
+  for(i in 2:length(ResultsInp)){
+    ResultsMatStack <- rbind(ResultsMatStack,ResultsInp[[i]])
+  }
+  
+  
+  #Normalize by classical mean width
+CIsWidthsClassicalAvg <- ResultsMatStack %>% filter(Method=="Classical") %>% group_by(Coefficient) %>%  summarise(ClassicalMean=mean(CIWidths_mean))
+ResultsOutMat <- ResultsMatStack
+for(i in 1:nrow(CIsWidthsClassicalAvg)){
+  idxCurrCoeff <- which(ResultsMatStack$Coefficient==CIsWidthsClassicalAvg$Coefficient[i])
+  currMeanClass <- CIsWidthsClassicalAvg$ClassicalMean[i]
+  ResultsOutMat$CIWidths_mean[idxCurrCoeff] <- ResultsMatStack$CIWidths_mean[idxCurrCoeff]/currMeanClass
+  ResultsOutMat$CIWidths_sd[idxCurrCoeff] <- ResultsMatStack$CIWidths_sd[idxCurrCoeff]/currMeanClass
+  
+  
+}
+  ResultsOutMat$Method[ResultsMatStack$Method=="PTD (Optimal Diagonal Tuning)"] <- "PTD (Diagonal Tuning)"
+  return(ResultsOutMat)
+  
+  
+}
+HousingPriceResults <- stackDfAndNorm(ResultsInp = SimsHousingPrice)
+TreecoverResults <- stackDfAndNorm(ResultsInp = SimsTreecover)
+ForestCoverResults <- stackDfAndNorm(ResultsInp = SimsForestCoverLogReg)
+
+# Add an experiment label column to each dataset
+HousingPriceResults$Experiment <- "(2) Linear Reg."
+TreecoverResults$Experiment <- "(4) Linear Reg."
+ForestCoverResults$Experiment <- "(6) Logistic Reg."
+
+HousingPriceResults$Coefficient[HousingPriceResults$Coefficient=="RoadLength"] <- "Road Length"
+HousingPriceResults$Coefficient <- factor(HousingPriceResults$Coefficient,levels = c("Intercept","Income","Nightlights","Road Length"))
+
+
+TreecoverResults$Coefficient[TreecoverResults$Coefficient=="Population"] <- "Population"
+TreecoverResults$Coefficient <- factor(TreecoverResults$Coefficient,levels = c("Intercept","Elevation","Population"))
+
+ForestCoverResults$Coefficient[ForestCoverResults$Coefficient=="Population"] <- "Population"
+ForestCoverResults$Coefficient <- factor(ForestCoverResults$Coefficient,levels = c("Intercept","Elevation","Population"))
+```
+
+
+```{r}
+library(ggplot2)
+library(patchwork)
+library(cowplot)
+library(ggh4x)
+
+color_scale_vals <- c("#619CFF","#FF2020","#65fe08","#8B44AC")
+shape_vals <- c(16,3,17,18)
+
+# --- Coverage figure ---
+
+make_coverage_plot <- function(data, exp_label, NSim = nSimsPerSetting, alphaTarg = 0.1) {
+  CoverageRange <- qbinom(p = c(0.01/2, 1 - 0.01/2), size = NSim, prob = 1 - alphaTarg) / NSim
+  ggplot(data, aes(x = ErrorParam, y = Coverage, color = Method, shape = Method)) +
+    geom_point(size = 1.5) +
+    geom_hline(yintercept = CoverageRange, col = "black", linetype = 3) +
+    scale_color_manual(values = color_scale_vals, drop = FALSE) +
+    scale_shape_manual(values = shape_vals, drop = FALSE) +
+    facet_grid2(rows = vars(!!sym(exp_label)), cols = vars(Coefficient), switch = "y",scales = "free", independent= "x") +
+    labs(x = NULL, y = NULL) +
+    theme_bw(base_size = 12) +
+    theme(
+      strip.background = element_rect(fill = "grey90"),
+      strip.placement = "outside",
+  #    strip.text.y.left = element_text(angle = 0, face = "bold"),
+      panel.grid.minor = element_blank(),
+      panel.grid.major.x = element_blank(),
+      panel.grid.major.y = element_line(size = 0.2),
+      legend.position = "none",
+      axis.text.y = element_text(size = 8),
+      plot.margin = margin(2, 2, 2, 2))+ylim(c(0.8,1))
+}
+
+
+
+# Housing Price has 4 coefficients (top row)
+p_cov_top <- make_coverage_plot(HousingPriceResults, "Experiment")
+
+# Treecover and Forest Cover have 3 coefficients each (bottom rows)
+df_cov_bot <- rbind(TreecoverResults, ForestCoverResults)
+p_cov_bot <- make_coverage_plot(df_cov_bot, "Experiment")
+
+# Extract legend
+p_legend_cov <- ggplot(HousingPriceResults, aes(x = ErrorParam, y = Coverage,
+                                                  color = Method, shape = Method)) +
+  geom_point() +
+  scale_color_manual(values = color_scale_vals) +
+  scale_shape_manual(values = shape_vals) +
+  labs(color = "Method", shape = "Method") +
+  theme_bw() +
+  theme(legend.position = "right", legend.text = element_text(size = 8))+ylim(c(0.8,1))
+
+legend_cov <- get_legend(p_legend_cov)
+
+# Bottom: 3/4 plot, 1/4 legend
+bottom_cov <- (p_cov_bot | wrap_elements(legend_cov)) + plot_layout(widths = c(3.1, 1))
+stacked_cov <- align_patches(p_cov_top, p_cov_bot)
+
+stacked_cov <- p_cov_top / bottom_cov + plot_layout(heights = c(1, 2.3))
+
+y_title_cov <- wrap_elements(panel = grid::textGrob(
+  "Empirical Coverage", rot = 90,
+  gp = grid::gpar(fontsize = 11),
+  vp = grid::viewport(clip = "off")
+))
+x_title_cov <- wrap_elements(panel = grid::textGrob(
+  "Shift in Mean of Proxy for Outcome Variable",
+  gp = grid::gpar(fontsize = 11),
+  vp = grid::viewport(clip = "off")
+))
+
+final_cov <- y_title_cov + stacked_cov + plot_layout(widths = c(1.5, 40))
+final_cov <- final_cov / x_title_cov + plot_layout(heights = c(40, 1.5))
+#final_cov <- final_cov & theme(plot.margin = margin(2, 2, 2, 2))
+
+ggsave(filename = paste0(getwd(), "/Figures/PPIPlusPlusCoverage.pdf"),
+       plot = final_cov, width = 8.5, height = 5)
+
+
+# --- CI Width figure ---
+
+make_width_plot <- function(data, exp_label, NSim = nSimsPerSetting) {
+  ggplot(data, aes(x = ErrorParam, y = CIWidths_mean, color = Method, shape = Method)) +
+    geom_point(size = 1.5) +
+    scale_color_manual(values = color_scale_vals, drop = FALSE) +
+    scale_shape_manual(values = shape_vals, drop = FALSE) +
+    facet_grid2(rows = vars(!!sym(exp_label)), cols = vars(Coefficient), switch = "y",scales = "free", independent= "x") +
+    labs(x = NULL, y = NULL) +
+    theme_bw(base_size = 12) +
+    theme(
+      strip.background = element_rect(fill = "grey90"),
+      strip.placement = "outside",
+     # strip.text.y.left = element_text(angle = 0, face = "bold"),
+      panel.grid.minor = element_blank(),
+      panel.grid.major.x = element_blank(),
+      panel.grid.major.y = element_line(size = 0.2),
+      legend.position = "none",
+      axis.text.y = element_text(size = 8), 
+     plot.margin = margin(2, 2, 2, 2)
+    )
+}
+
+p_wid_top <- make_width_plot(HousingPriceResults, "Experiment")
+
+df_wid_bot <- rbind(TreecoverResults, ForestCoverResults)
+p_wid_bot <- make_width_plot(df_wid_bot, "Experiment")
+
+legend_wid <- get_legend(p_legend_cov)  # same legend
+
+bottom_wid <- (p_wid_bot | wrap_elements(legend_wid)) + plot_layout(widths = c(3.1, 1))
+
+stacked_wid <- p_wid_top / bottom_wid + plot_layout(heights = c(1, 2.3))
+
+y_title_wid <- wrap_elements(panel = grid::textGrob(
+  "Normalized Mean Confidence Interval Width", rot = 90,
+  gp = grid::gpar(fontsize = 11),
+  vp = grid::viewport(clip = "off")
+))
+x_title_wid <- wrap_elements(panel = grid::textGrob(
+  "Shift in Mean of Proxy for Outcome Variable",
+  gp = grid::gpar(fontsize = 11),
+  vp = grid::viewport(clip = "off")
+))
+
+final_wid <- y_title_wid + stacked_wid + plot_layout(widths = c(1.5, 40))
+final_wid <- final_wid / x_title_wid + plot_layout(heights = c(40, 1.5))
+#final_wid <- final_wid & theme(plot.margin = margin(2, 2, 2, 2))
+
+ggsave(filename = paste0(getwd(), "/Figures/PIPlusPlusCIWidth.pdf"),
+       plot = final_wid, width = 8.5, height = 5)
+```

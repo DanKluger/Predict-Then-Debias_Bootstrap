@@ -1,0 +1,32 @@
+---
+title: "Untitled"
+author: "Dan Kluger"
+date: "10/1/2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+Example showing optimally tuned PPI++ estimator can be more efficient than optimally tuned PTD estimator.
+
+```{r}
+N <- 10^8
+q <- 0.99
+sdX <- 0.25
+X <- rnorm(N)*sdX
+tildeX <- X +rnorm(N)
+
+#Calculating theta=F^{-1}(q) and gamma= \tilde{F}^{-1}(q)
+theta <- qnorm(p = q,mean = 0,sd = sdX)
+gamma <- qnorm(p = q,mean = 0,sd = sqrt(sdX^2+1))
+
+print("99.99% CI for corr(I{X <= F^{-1}(q)} , I{\tilde{X} <= F^{-1}(q)}):")
+cor.test(as.numeric(I(X <= theta)),as.numeric(I(tildeX <= theta )),conf.level = 0.9999)$conf.int[1:2]
+print("99.99% CI for corr(I{X <= F^{-1}(q)} , I{\tilde{X} <= \tilde{F}^{-1}(q)}):")
+cor.test(as.numeric(I(X <= theta)),as.numeric(I(tildeX <= gamma )),conf.level = 0.9999)$conf.int[1:2]
+```
+
+
